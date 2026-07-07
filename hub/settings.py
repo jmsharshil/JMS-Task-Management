@@ -131,3 +131,44 @@ if not DEBUG:
             },
         },
     }
+
+CSRF_COOKIE_SECURE = True      # Only valid if using HTTPS
+SESSION_COOKIE_SECURE = True   # Only valid if using HTTPS
+
+USE_AZURE_MEDIA = os.environ.get("USE_AZURE_MEDIA", "0") in ("1", "true", "True")
+
+if USE_AZURE_MEDIA:
+    AZURE_ACCOUNT_NAME = os.environ["AZURE_ACCOUNT_NAME"]
+    AZURE_ACCOUNT_KEY  = os.environ["AZURE_ACCOUNT_KEY"]
+    AZURE_CONTAINER    = os.environ.get("AZURE_MEDIA_CONTAINER")
+    AZURE_ACCOUNT_URL  = f"https://{AZURE_ACCOUNT_NAME}.blob.core.windows.net"
+    AZURE_CUSTOM_DOMAIN = os.environ.get(
+        "AZURE_CUSTOM_DOMAIN",
+        f"{AZURE_ACCOUNT_NAME}.blob.core.windows.net",
+    )
+    AZURE_URL_EXPIRATION_SECS = int(os.environ.get("AZURE_URL_EXPIRATION_SECS", "3600"))
+    AZURE_OVERWRITE_FILES = False
+
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.azure_storage.AzureStorage",
+            "OPTIONS": {
+                "account_name": AZURE_ACCOUNT_NAME,
+                "account_key": AZURE_ACCOUNT_KEY,
+                "azure_container": AZURE_CONTAINER,
+                "overwrite_files": AZURE_OVERWRITE_FILES,
+                "expiration_secs": None,
+            }
+        },
+        "staticfiles": {
+            # keep whatever you use for static files (example with WhiteNoise)
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+        },
+    }
+
+    WHITENOISE_USE_FINDERS = True
+
+    MEDIA_URL = f"https://{AZURE_CUSTOM_DOMAIN}/{AZURE_CONTAINER}/"
+else:
+    MEDIA_URL  = "/media/"
+    MEDIA_ROOT = os.path.join(BASE_DIR, "media")
