@@ -3,6 +3,7 @@ import importlib
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from django.utils import timezone
+from django.db import close_old_connections
 from core.models import BackgroundJob
 
 def process_queue(executor):
@@ -15,6 +16,7 @@ def process_queue(executor):
         executor.submit(execute_job, job.id)
 
 def execute_job(job_id):
+    close_old_connections()
     job = BackgroundJob.objects.get(id=job_id)
     try:
         module_name, func_name = job.task_name.rsplit('.', 1)
@@ -64,6 +66,7 @@ def run_scheduler_loop():
     executor = ThreadPoolExecutor(max_workers=5)
     while True:
         try:
+            close_old_connections()
             check_scheduled_tasks()
             process_queue(executor)
         except Exception as e:
