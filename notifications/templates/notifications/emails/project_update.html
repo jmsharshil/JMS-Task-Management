@@ -1,0 +1,20 @@
+{% extends "notifications/emails/base.html" %}
+
+{% block title %}Update — {{ project_name }}{% endblock %}
+{% block header_title %}Project Update 📢{% endblock %}
+{% block header_subtitle %}<p class="subtitle">{{ project_name }}</p>{% endblock %}
+
+{% block content %}
+<p class="greeting">Hi {{ first_name }},</p>
+
+<p>A new update has been posted for <strong>{{ project_name }}</strong>:</p>
+
+<div class="info-card">
+  <p>UPDATE</p>
+  <p class="value">{{ update_text }}</p>
+</div>
+
+<hr class="divider">
+
+<p>Check the hub for the full project timeline and any related task changes.</p>
+{% endblock %}

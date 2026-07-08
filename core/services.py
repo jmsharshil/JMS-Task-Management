@@ -45,6 +45,58 @@ def build_plan_rows(project_name, weeks, devs, working_days, brief,
     return rows
 
 
+def weekly_report_context(project, week):
+    tasks = list(project.tasks.filter(week=week).select_related("developer"))
+    all_tasks = project.tasks.all()
+    total = all_tasks.count()
+    done_all = all_tasks.filter(status="DONE").count()
+    done_wk = [t for t in tasks if t.status == "DONE"]
+    pend_wk = [t for t in tasks if t.status != "DONE"]
+
+    by_dev = {}
+    for t in tasks:
+        n = t.developer.get_full_name() or t.developer.email
+        by_dev.setdefault(n, {"name": n, "done": 0, "total": 0, "pct": 0})
+        by_dev[n]["total"] += 1
+        if t.status == "DONE":
+            by_dev[n]["done"] += 1
+            
+    devs = []
+    for stat in by_dev.values():
+        stat["pct"] = round((stat["done"] / stat["total"]) * 100) if stat["total"] else 0
+        devs.append(stat)
+
+    dates = sorted(t.date for t in tasks) or [project.start_date]
+    
+    completed_tasks = [
+        {"day_num": t.day_num, "dev_name": t.developer.get_full_name() or t.developer.email, "module": (t.module or "General")[:60], "title": t.title[:240]} 
+        for t in done_wk
+    ]
+    pending_tasks = [
+        {"day_num": t.day_num, "dev_name": t.developer.get_full_name() or t.developer.email, "module": (t.module or "General")[:60], "title": t.title[:240]} 
+        for t in pend_wk
+    ]
+
+    return {
+        "project_name": project.name,
+        "project_ref": project.ref,
+        "client_name": project.client.name if project.client else None,
+        "week": week,
+        "week_start": _fmt(dates[0]),
+        "week_end": _fmt(dates[-1]),
+        "generated_date": timezone.localdate().strftime('%a, %d %b %Y'),
+        "overall_pct": round(done_all/total*100) if total else 0,
+        "done_all": done_all,
+        "total": total,
+        "week_pct": round(len(done_wk)/len(tasks)*100) if tasks else 0,
+        "done_week": len(done_wk),
+        "total_week": len(tasks),
+        "devs": devs,
+        "completed_tasks": completed_tasks,
+        "pending_tasks": pending_tasks,
+    }
+
+
 def weekly_report_text(project, week):
     """Plain-text weekly report — same layout as the JMS sheet reports."""
     tasks = list(project.tasks.filter(week=week).select_related("developer"))

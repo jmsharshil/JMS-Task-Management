@@ -1,0 +1,32 @@
+{% extends "notifications/emails/base.html" %}
+{% load tz %}
+
+{% block title %}Today's Tasks ({{ task_count }}) — {{ today }}{% endblock %}
+{% block header_title %}Good Morning ☀️{% endblock %}
+{% block header_subtitle %}<p class="subtitle">Your daily task digest for {{ today }}</p>{% endblock %}
+
+{% block content %}
+<p class="greeting">Hi {{ first_name }},</p>
+
+<p>Here are your <strong>{{ task_count }} task{{ task_count|pluralize }}</strong> scheduled for today across all projects:</p>
+
+{% for task in tasks %}
+<div class="task-item" style="margin-bottom: 10px; background-color: #0f172a; border-radius: 10px; padding: 14px 18px; border: 1px solid rgba(99,102,241,0.15);">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+    <tr>
+      <td width="70" valign="top">
+        <span class="task-badge" style="display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px;">D{{ task.day_num }}</span>
+      </td>
+      <td valign="top">
+        <span class="task-module" style="color: #818cf8; font-weight: 600; font-size: 13px;">{{ task.project_name }} · {{ task.module }}</span><br>
+        <span class="task-text" style="color: #e2e8f0; font-size: 14px;">{{ task.title }}</span>
+      </td>
+    </tr>
+  </table>
+</div>
+{% endfor %}
+
+<hr class="divider">
+
+<p>Tick them off in the hub as you finish. Have a productive day! 🚀</p>
+{% endblock %}

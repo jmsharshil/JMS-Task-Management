@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>{% block title %}JMS Delivery Hub{% endblock %}</title>
+<!--[if mso]>
+<noscript>
+<xml>
+<o:OfficeDocumentSettings>
+<o:PixelsPerInch>96</o:PixelsPerInch>
+</o:OfficeDocumentSettings>
+</xml>
+</noscript>
+<![endif]-->
+<style>
+  /* Reset */
+  body, table, td, p, a, li, blockquote { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+  table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+  img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+  body { margin: 0; padding: 0; width: 100% !important; height: 100% !important; }
+
+  /* Layout */
+  .email-wrapper { width: 100%; background-color: #0f172a; padding: 32px 0; }
+  .email-container { max-width: 600px; margin: 0 auto; background-color: #1e293b; border-radius: 16px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+
+  /* Header */
+  .email-header { background: linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%); padding: 32px 40px; text-align: center; }
+  .email-header h1 { margin: 0; color: #ffffff; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+  .email-header .subtitle { margin: 6px 0 0 0; color: rgba(255,255,255,0.85); font-family: 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 400; }
+
+  /* Body */
+  .email-body { padding: 36px 40px; }
+  .email-body p { margin: 0 0 16px 0; color: #cbd5e1; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.7; }
+  .email-body .greeting { color: #f1f5f9; font-size: 17px; font-weight: 600; margin-bottom: 20px; }
+
+  /* Cards / Info Boxes */
+  .info-card { background-color: #0f172a; border-radius: 12px; padding: 20px 24px; margin: 20px 0; border-left: 4px solid #6366f1; }
+  .info-card p { margin: 0 0 8px 0; color: #94a3b8; font-size: 13px; }
+  .info-card .value { color: #e2e8f0; font-size: 15px; font-weight: 600; }
+
+  /* Task List */
+  .task-list { list-style: none; padding: 0; margin: 20px 0; }
+  .task-item { background-color: #0f172a; border-radius: 10px; padding: 14px 18px; margin-bottom: 10px; display: flex; border: 1px solid rgba(99,102,241,0.15); }
+  .task-item .task-badge { display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; margin-right: 12px; white-space: nowrap; line-height: 20px; }
+  .task-item .task-text { color: #e2e8f0; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 14px; line-height: 1.5; }
+  .task-item .task-module { color: #818cf8; font-weight: 600; }
+
+  /* Stats Grid */
+  .stats-grid { margin: 20px 0; }
+  .stat-box { display: inline-block; width: 47%; background-color: #0f172a; border-radius: 10px; padding: 16px; margin-bottom: 10px; vertical-align: top; text-align: center; }
+  .stat-box .stat-number { color: #818cf8; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 28px; font-weight: 700; }
+  .stat-box .stat-label { color: #94a3b8; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+
+  /* Buttons */
+  .btn { display: inline-block; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #ffffff !important; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 14px; font-weight: 600; text-decoration: none; padding: 12px 28px; border-radius: 8px; margin-top: 16px; }
+
+  /* Divider */
+  .divider { border: none; border-top: 1px solid rgba(99,102,241,0.2); margin: 24px 0; }
+
+  /* Footer */
+  .email-footer { padding: 24px 40px; text-align: center; border-top: 1px solid rgba(99,102,241,0.15); }
+  .email-footer p { margin: 0; color: #64748b; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.6; }
+  .email-footer .brand { color: #818cf8; font-weight: 600; }
+
+  /* Table fallback for Outlook */
+  .section-heading { color: #a5b4fc; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin: 24px 0 12px 0; }
+
+  /* Developer name tag */
+  .dev-tag { display: inline-block; background-color: rgba(99,102,241,0.15); color: #a5b4fc; font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 6px; }
+
+  /* Responsive */
+  @media only screen and (max-width: 620px) {
+    .email-body { padding: 24px 20px !important; }
+    .email-header { padding: 24px 20px !important; }
+    .email-footer { padding: 20px !important; }
+    .stat-box { width: 100% !important; display: block !important; }
+  }
+</style>
+</head>
+<body>
+<div class="email-wrapper">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+    <tr>
+      <td align="center">
+        <div class="email-container">
+          <!-- Header -->
+          <div class="email-header">
+            <h1>{% block header_title %}JMS Delivery Hub{% endblock %}</h1>
+            {% block header_subtitle %}<p class="subtitle">Project Management &amp; Delivery Tracking</p>{% endblock %}
+          </div>
+
+          <!-- Body -->
+          <div class="email-body">
+            {% block content %}{% endblock %}
+          </div>
+
+          <!-- Footer -->
+          <div class="email-footer">
+            <p><span class="brand">JMS Delivery Hub</span> &middot; Powered by JMS Tech</p>
+            <p style="margin-top: 6px;">This is an automated notification. Please do not reply to this email.</p>
+          </div>
+        </div>
+      </td>
+    </tr>
+  </table>
+</div>
+</body>
+</html>

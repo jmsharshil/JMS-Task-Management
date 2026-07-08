@@ -1,0 +1,20 @@
+{% extends "notifications/emails/base.html" %}
+
+{% block title %}Plan Updated: {{ project_name }}{% endblock %}
+{% block header_title %}Plan Adjusted ⚙️{% endblock %}
+{% block header_subtitle %}<p class="subtitle">{{ project_name }}</p>{% endblock %}
+
+{% block content %}
+<p class="greeting">Hi {{ first_name }},</p>
+
+<p>The project plan for <strong>{{ project_name }}</strong> has been adjusted from <strong>Week {{ week_from }}</strong> onwards due to a scope or FDD change.</p>
+
+<div class="info-card">
+  <p>WHAT CHANGED</p>
+  <p class="value">Plan restructured from W{{ week_from }} onwards</p>
+</div>
+
+<hr class="divider">
+
+<p>All your previously completed work remains untouched. Please review your upcoming tasks in the hub to stay aligned with the new timeline.</p>
+{% endblock %}

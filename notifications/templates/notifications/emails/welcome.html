@@ -1,0 +1,27 @@
+{% extends "notifications/emails/base.html" %}
+
+{% block title %}Welcome to JMS Delivery Hub{% endblock %}
+{% block header_title %}Welcome Aboard! 🎉{% endblock %}
+{% block header_subtitle %}<p class="subtitle">Your JMS Delivery Hub account is ready</p>{% endblock %}
+
+{% block content %}
+<p class="greeting">Hi {{ first_name }},</p>
+
+<p>You've been added to <strong>JMS Delivery Hub</strong> — your central workspace for project planning, task tracking, and daily delivery management.</p>
+
+<div class="info-card">
+  <p>LOGIN EMAIL</p>
+  <p class="value">{{ email }}</p>
+</div>
+
+<div class="info-card">
+  <p>TEMPORARY PASSWORD</p>
+  <p class="value" style="font-family: 'Courier New', monospace; letter-spacing: 1px;">{{ password }}</p>
+</div>
+
+<hr class="divider">
+
+<p>Sign in to the hub, explore your dashboard, and you'll see your daily tasks once a project plan is published.</p>
+
+<p style="color: #fbbf24; font-size: 13px;">⚠️ Please change your password after your first login for security.</p>
+{% endblock %}

@@ -3,11 +3,12 @@ from django.conf import settings
 from django.core.mail import send_mail
 
 
-def email(to, subject, body):
+def email(to, subject, body, html_message=None):
     if not to:
         return
     send_mail(subject, body, settings.DEFAULT_FROM_EMAIL,
-              [to] if isinstance(to, str) else list(to), fail_silently=False)
+              [to] if isinstance(to, str) else list(to),
+              html_message=html_message, fail_silently=False)
 
 
 def whatsapp(phone, text):

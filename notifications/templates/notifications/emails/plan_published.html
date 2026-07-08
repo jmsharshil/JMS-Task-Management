@@ -1,0 +1,37 @@
+{% extends "notifications/emails/base.html" %}
+
+{% block title %}New Project Plan: {{ project_name }}{% endblock %}
+{% block header_title %}New Project Plan 📋{% endblock %}
+{% block header_subtitle %}<p class="subtitle">{{ project_name }}</p>{% endblock %}
+
+{% block content %}
+<p class="greeting">Hi {{ first_name }},</p>
+
+<p>A new project has been planned and published. Here's a quick overview of what's lined up for you:</p>
+
+<div class="info-card">
+  <p>PROJECT</p>
+  <p class="value">{{ project_name }}</p>
+</div>
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="stats-grid">
+  <tr>
+    <td width="48%" style="padding-right: 2%;">
+      <div class="stat-box">
+        <div class="stat-number">{{ task_count }}</div>
+        <div class="stat-label">Tasks Assigned</div>
+      </div>
+    </td>
+    <td width="48%" style="padding-left: 2%;">
+      <div class="stat-box">
+        <div class="stat-number">{{ start_date }} – {{ end_date }}</div>
+        <div class="stat-label">Schedule</div>
+      </div>
+    </td>
+  </tr>
+</table>
+
+<hr class="divider">
+
+<p>Open the hub to see your full day-wise plan with modules and deliverables.</p>
+{% endblock %}
