@@ -78,9 +78,9 @@ REST_FRAMEWORK = {
 }
 SIMPLE_JWT = {"ACCESS_TOKEN_LIFETIME": timedelta(days=36500), "REFRESH_TOKEN_LIFETIME": timedelta(days=3000)}
 
-CORS_ALLOWED_ORIGINS = ["http://localhost:5173","https://yellow-hill-086abe100.7.azurestaticapps.net"]
+CORS_ALLOWED_ORIGINS = ["http://localhost:5173","https://yellow-hill-086abe100.7.azurestaticapps.net","https://deliveryhub.jmstech.co"]
 
-CSRF_TRUSTED_ORIGINS = ["https://jms-task-management-f2e2hzcthnhteveh.centralindia-01.azurewebsites.net","http://localhost:8000","deliveryhub.jmstech.co"]
+CSRF_TRUSTED_ORIGINS = ["https://jms-task-management-f2e2hzcthnhteveh.centralindia-01.azurewebsites.net","http://localhost:8000"]
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Asia/Kolkata"
