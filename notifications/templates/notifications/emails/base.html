@@ -87,18 +87,32 @@
         <div class="email-container">
           <!-- Header -->
           <div class="email-header">
-            <h1>{% block header_title %}JMS Delivery Hub{% endblock %}</h1>
+            <h1>
+              <a href="https://deliveryhub.jmstech.co/" target="_blank" style="color: #ffffff; text-decoration: none;">
+                {% block header_title %}JMS Delivery Hub{% endblock %}
+              </a>
+            </h1>
             {% block header_subtitle %}<p class="subtitle">Project Management &amp; Delivery Tracking</p>{% endblock %}
           </div>
 
           <!-- Body -->
           <div class="email-body">
             {% block content %}{% endblock %}
+
+            <!-- CTA Button - JMS Delivery Hub (appears in all emails) -->
+            <div style="text-align: center; margin: 32px 0 10px 0;">
+              <a href="https://deliveryhub.jmstech.co/" 
+                 class="btn" 
+                 target="_blank" 
+                 style="color: #ffffff !important; text-decoration: none;">
+                Open JMS Delivery Hub →
+              </a>
+            </div>
           </div>
 
           <!-- Footer -->
           <div class="email-footer">
-            <p><span class="brand">JMS Delivery Hub</span> &middot; Powered by JMS Tech</p>
+            <p><a href="https://deliveryhub.jmstech.co/" target="_blank" style="color: #818cf8; text-decoration: none;" class="brand">JMS Delivery Hub</a> &middot; Powered by JMS Tech</p>
             <p style="margin-top: 6px;">This is an automated notification. Please do not reply to this email.</p>
           </div>
         </div>
