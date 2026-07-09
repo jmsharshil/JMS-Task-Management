@@ -1,4 +1,6 @@
 from django.utils import timezone
+from django.template.loader import render_to_string
+from django.http import HttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action, api_view
 from rest_framework.response import Response
@@ -9,9 +11,12 @@ from accounts.permissions import IsAdmin
 from ai import planner
 from .models import Client, Project, Task, Update
 from .serializers import ClientSerializer, ProjectSerializer, TaskSerializer, UpdateSerializer
-from .services import build_plan_rows, weekly_report_text, summary_stats_text
+from .services import build_plan_rows, weekly_report_text, summary_stats_text,build_gantt_pdf_context
 from notifications import tasks as notify
+from django.utils.text import slugify
 
+from logging import getLogger
+logger = getLogger(__name__)
 
 class ClientViewSet(viewsets.ModelViewSet):
     queryset = Client.objects.all().order_by("name")
@@ -30,7 +35,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return qs
 
     def get_permissions(self):
-        if self.action in ("list", "retrieve", "report", "gantt"):
+        if self.action in ("list", "retrieve", "report", "gantt", "gantt_pdf"):
             return super().get_permissions()
         return [IsAdmin()]
 
@@ -190,6 +195,73 @@ class ProjectViewSet(viewsets.ModelViewSet):
             out.append({"developer": dev.get_full_name() or dev.email,
                         "designation": dev.designation, "segments": segs})
         return Response({"n_days": n_days, "rows": out})
+
+    def _build_gantt_rows(self, project):
+        """Shared by gantt() and gantt_pdf() so we only compute this once."""
+        n_days = project.weeks * 5
+        out = []
+        for dev in project.team.all():
+            by_day = {t.day_num: t for t in project.tasks.filter(developer=dev)}
+            segs, cur = [], None
+            for d in range(1, n_days + 1):
+                t = by_day.get(d)
+                mod = t.module if t else None
+                if cur and cur["module"] == mod:
+                    cur["len"] += 1
+                    cur["done"] += 1 if t and t.status == "DONE" else 0
+                else:
+                    if cur and cur["module"]:
+                        segs.append(cur)
+                    cur = {"start": d, "len": 1, "module": mod,
+                        "done": 1 if t and t.status == "DONE" else 0} if mod else None
+            if cur and cur["module"]:
+                segs.append(cur)
+            out.append({"developer": dev.get_full_name() or dev.email,
+                        "designation": dev.designation, "segments": segs})
+        return {"n_days": n_days, "rows": out}
+
+    @action(detail=True, methods=["get"])
+    def gantt(self, request, pk=None):
+        return Response(self._build_gantt_rows(self.get_object()))
+
+    @action(detail=True, methods=["get"], url_path="gantt-pdf")
+    def gantt_pdf(self, request, pk=None):
+        """Generate a professional PDF of the Gantt chart (backend rendered)."""
+        try:
+            from weasyprint import HTML
+        except OSError as e:
+            # Missing GTK/Pango runtime — common on Windows dev machines.
+            err = (
+                "WeasyPrint dependencies not found (GTK runtime).\n\n"
+                "1. Download GTK3 Runtime: https://github.com/tschoonj/GTK-for-Windows-Runtime-Environment-Installer/releases\n"
+                "2. Run the .exe installer and add bin/ to PATH.\n"
+                "3. Restart terminal + venv.\n\n"
+                "Backup: Use the 'Export (browser)' button in the Gantt tab (html2canvas + jsPDF fallback).\n\n"
+                f"Original error: {e}"
+            )
+            return HttpResponse(err, status=500, content_type="text/plain")
+
+        project = self.get_object()
+
+        try:
+            gantt_data = self._build_gantt_rows(project)
+            context = build_gantt_pdf_context(project, gantt_data, request)
+            html_string = render_to_string("gantt_pdf.html", context)
+            pdf_bytes = HTML(string=html_string, base_url=request.build_absolute_uri("/")).write_pdf()
+        except Exception:
+            # Never leak a stack trace to the client; log it for ops instead.
+            logger.exception("Gantt PDF generation failed for project %s", project.id)
+            return Response(
+                {"detail": "Couldn't generate the PDF right now. Try again, or use the browser export as a fallback."},
+                status=502,
+            )
+
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        safe_name = slugify(project.name) or f"project-{project.id}"
+        disposition = "inline" if request.query_params.get("preview") else "attachment"
+        response["Content-Disposition"] = f'{disposition}; filename="{safe_name}_gantt_chart.pdf"'
+        response["Cache-Control"] = "no-store"
+        return response
 
     @action(detail=True, methods=["get", "post"], url_path="updates")
     def project_updates(self, request, pk=None):

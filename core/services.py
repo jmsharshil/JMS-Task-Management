@@ -160,3 +160,53 @@ def summary_stats_text(project):
         f"Recently completed: " + ("; ".join(t.title for t in done[-10:]) or "none") + ".\n"
         f"Latest team updates: " + (" | ".join(u.text for u in updates) or "none")
     )
+
+# --- add to services.py ---
+
+MODULE_COLORS = ["#D6222A", "#1D6FB8", "#178A50", "#B8860B", "#7A3FB8",
+                  "#C25A1E", "#0F8A8A", "#8A0F55", "#5A6B1E", "#3F51B5",
+                  "#996633", "#607D8B"]
+
+
+def build_gantt_pdf_context(project, gantt_data, request):
+    """Turn raw gantt() data into everything the PDF template needs.
+    Pure function — no HTTP/response concerns — so it's easy to unit test."""
+    n_days = gantt_data["n_days"] or 1  # guard div-by-zero for freshly-created projects
+    rows = gantt_data["rows"]
+
+    modules, color_idx = {}, 0
+    for row in rows:
+        for seg in row.get("segments", []):
+            mod = seg.get("module")
+            if not mod:
+                continue
+            if mod not in modules:
+                modules[mod] = MODULE_COLORS[color_idx % len(MODULE_COLORS)]
+                color_idx += 1
+            seg["color"] = modules[mod]
+            seg_len = seg.get("len") or 1
+            seg["done_pct"] = round((seg.get("done", 0) / seg_len) * 100)
+            seg["left_pct"] = round(((seg.get("start", 1) - 1) / n_days) * 100, 2)
+            seg["width_pct"] = round((seg_len / n_days) * 100, 2)
+
+    total_tasks = project.tasks.count()
+    done_tasks = project.tasks.filter(status="DONE").count()
+    overall_pct = round((done_tasks / total_tasks) * 100) if total_tasks else 0
+
+    return {
+        "project": project,
+        "n_days": n_days,
+        "rows": rows,
+        "modules": [{"name": m, "color": c} for m, c in modules.items()],
+        "weeks": list(range(1, project.weeks + 1)),
+        "week_count": project.weeks or 1,
+        "generated_date": timezone.now().strftime("%d %B %Y at %H:%M"),
+        "overall_pct": overall_pct,
+        "progress_color": (
+            "#DC2626" if overall_pct < 30 else
+            "#D97706" if overall_pct < 70 else
+            "#059669"
+        ),
+        "client_name": project.client.name if project.client else "",
+        "has_data": bool(rows) and any(r.get("segments") for r in rows),
+    }
