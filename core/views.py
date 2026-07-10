@@ -9,9 +9,13 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from accounts.models import User
 from accounts.permissions import IsAdmin
 from ai import planner
-from .models import Client, Project, Task, Update
-from .serializers import ClientSerializer, ProjectSerializer, TaskSerializer, UpdateSerializer
-from .services import build_plan_rows, weekly_report_text, summary_stats_text,build_gantt_pdf_context
+from .models import Client, Project, Task, Update, ProjectDocument, AdHocTask, AdHocTaskAttachment
+from .serializers import (ClientSerializer, ProjectSerializer, TaskSerializer,
+                          UpdateSerializer, ProjectDocumentSerializer,
+                          AdHocTaskSerializer, AdHocTaskAttachmentSerializer)
+from .services import (build_plan_rows, weekly_report_text, weekly_report_context,
+                       summary_stats_text, build_gantt_pdf_context,
+                       daily_report_context, daily_report_text, render_report_pdf)
 from notifications import tasks as notify
 from django.utils.text import slugify
 
@@ -77,18 +81,38 @@ class ProjectViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         """Save a confirmed project + its (possibly edited) draft rows, then notify team."""
         data = request.data
+        import json
+        
+        # Parse JSON strings if data comes from FormData
+        brief_data = data.get("brief")
+        if isinstance(brief_data, str):
+            brief_data = json.loads(brief_data)
+        brief_data = brief_data or {}
+            
+        rows_data = data.get("rows")
+        if isinstance(rows_data, str):
+            rows_data = json.loads(rows_data)
+        rows_data = rows_data or []
+        
+        team_data = data.get("team")
+        if isinstance(team_data, str):
+            team_data = team_data.split(",") if team_data else []
+        elif not team_data:
+            team_data = []
+            
         project = Project.objects.create(
             name=data["name"], client_id=data.get("client") or None,
             ref=data.get("ref", ""), start_date=data["start_date"],
             weeks=int(data.get("weeks", 8)),
-            brief_summary=(data.get("brief") or {}).get("summary", ""),
-            brief_modules=(data.get("brief") or {}).get("modules", []),
+            brief_summary=brief_data.get("summary", ""),
+            brief_modules=brief_data.get("modules", []),
+            sow_pdf=request.FILES.get("sow_pdf")
         )
-        project.team.set(data.get("team", []))
+        project.team.set(team_data)
         Task.objects.bulk_create([
             Task(project=project, day_num=r["day_num"], date=r["date"], week=r["week"],
                  developer_id=r["developer_id"], module=r["module"], title=r["title"])
-            for r in data.get("rows", [])
+            for r in rows_data
         ])
         Update.objects.create(project=project, author=request.user,
                               text=f"Project kicked off — plan published. "
@@ -161,6 +185,49 @@ class ProjectViewSet(viewsets.ModelViewSet):
         week = int(request.data.get("week", 1))
         notify.email_weekly_report(self.get_object().id, week)
         return Response({"detail": "Report is on its way to your inbox."})
+
+    @action(detail=True, methods=["get"], url_path="report-pdf")
+    def report_pdf(self, request, pk=None):
+        """Download weekly report as PDF."""
+        project = self.get_object()
+        week = int(request.query_params.get("week", 1))
+        context = weekly_report_context(project, week)
+        html = render_to_string("notifications/emails/weekly_report.html", context)
+        try:
+            pdf_bytes = render_report_pdf(html)
+        except RuntimeError as e:
+            return Response({"detail": str(e)}, status=502)
+        resp = HttpResponse(pdf_bytes, content_type="application/pdf")
+        resp["Content-Disposition"] = f'attachment; filename="{slugify(project.name)}_W{week}_report.pdf"'
+        return resp
+
+    @action(detail=True, methods=["get"], url_path="daily-report")
+    def daily_report(self, request, pk=None):
+        """Get daily report data."""
+        from datetime import date as date_cls
+        project = self.get_object()
+        d = request.query_params.get("date")
+        report_date = date_cls.fromisoformat(d) if d else timezone.localdate()
+        context = daily_report_context(project, report_date)
+        context["text"] = daily_report_text(project, report_date)
+        return Response(context)
+
+    @action(detail=True, methods=["get"], url_path="daily-report-pdf")
+    def daily_report_pdf(self, request, pk=None):
+        """Download daily report as PDF."""
+        from datetime import date as date_cls
+        project = self.get_object()
+        d = request.query_params.get("date")
+        report_date = date_cls.fromisoformat(d) if d else timezone.localdate()
+        context = daily_report_context(project, report_date)
+        html = render_to_string("notifications/emails/daily_report.html", context)
+        try:
+            pdf_bytes = render_report_pdf(html)
+        except RuntimeError as e:
+            return Response({"detail": str(e)}, status=502)
+        resp = HttpResponse(pdf_bytes, content_type="application/pdf")
+        resp["Content-Disposition"] = f'attachment; filename="{slugify(project.name)}_{report_date}_daily_report.pdf"'
+        return resp
 
     @action(detail=True, methods=["get"], permission_classes=[IsAdmin])
     def summary(self, request, pk=None):
@@ -275,6 +342,37 @@ class ProjectViewSet(viewsets.ModelViewSet):
             return Response(UpdateSerializer(u).data, status=201)
         return Response(UpdateSerializer(project.updates.all(), many=True).data)
 
+    @action(detail=True, methods=["get", "post"], url_path="documents")
+    def documents(self, request, pk=None):
+        project = self.get_object()
+        if request.method == "POST":
+            if not request.user.is_admin:
+                return Response(status=403)
+            file = request.FILES.get("file")
+            title = request.data.get("title", "").strip() or (file.name if file else "Document")
+            if not file:
+                return Response({"detail": "No file uploaded."}, status=400)
+            doc = ProjectDocument.objects.create(
+                project=project, title=title, file=file, uploaded_by=request.user
+            )
+            return Response(
+                ProjectDocumentSerializer(doc, context={"request": request}).data,
+                status=201,
+            )
+        docs = project.documents.all()
+        return Response(ProjectDocumentSerializer(docs, many=True, context={"request": request}).data)
+
+    @action(detail=True, methods=["delete"], url_path=r"documents/(?P<doc_id>\d+)",
+            permission_classes=[IsAdmin])
+    def delete_document(self, request, pk=None, doc_id=None):
+        doc = ProjectDocument.objects.filter(project=self.get_object(), pk=doc_id).first()
+        if not doc:
+            return Response(status=404)
+        doc.file.delete(save=False)
+        doc.delete()
+        return Response(status=204)
+
+
 
 class TaskViewSet(viewsets.ModelViewSet):
     serializer_class = TaskSerializer
@@ -296,7 +394,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     def partial_update(self, request, *args, **kwargs):
         task = self.get_object()
         u = request.user
-        # Developers may toggle their own status; only admins may reassign
+        # Developers may toggle their own status and edit their own comment; only admins may reassign
         if "developer" in request.data and not u.is_admin:
             return Response(status=403)
         if "status" in request.data:
@@ -305,6 +403,11 @@ class TaskViewSet(viewsets.ModelViewSet):
             task.done_at = timezone.now() if new == "DONE" else None
         if "developer" in request.data and u.is_admin:
             task.developer_id = request.data["developer"]
+        if "comment" in request.data:
+            # Developer can only edit their own task's comment
+            if not u.is_admin and task.developer_id != u.id:
+                return Response(status=403)
+            task.comment = request.data["comment"]
         task.save()
         return Response(TaskSerializer(task).data)
 
@@ -332,3 +435,73 @@ def dashboard(request):
         proj_rows.append({"id": p.id, "name": p.name, "done": done, "pending": pend + over,
                           "total": total, "pct": round(done / total * 100) if total else 0})
     return Response({"totals": totals, "projects": proj_rows, "developers": list(dev_map.values())})
+
+
+class AdHocTaskViewSet(viewsets.ModelViewSet):
+    """CRUD for standalone tasks not tied to projects."""
+    serializer_class = AdHocTaskSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def get_queryset(self):
+        u = self.request.user
+        qs = AdHocTask.objects.select_related("assigned_to", "created_by").prefetch_related("attachments")
+        if not u.is_admin:
+            qs = qs.filter(assigned_to=u)
+        assignee = self.request.query_params.get("assignee")
+        if assignee:
+            qs = qs.filter(assigned_to_id=assignee)
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        priority = self.request.query_params.get("priority")
+        if priority:
+            qs = qs.filter(priority=priority)
+        return qs
+
+    def perform_create(self, serializer):
+        task = serializer.save(created_by=self.request.user)
+        # Attach files if any
+        for f in self.request.FILES.getlist("files"):
+            AdHocTaskAttachment.objects.create(task=task, file=f, title=f.name)
+        notify.send_adhoc_task_assigned(task.id)
+
+    def partial_update(self, request, *args, **kwargs):
+        task = self.get_object()
+        u = request.user
+        # Non-admin can only update status and comment on their own tasks
+        if not u.is_admin and task.assigned_to_id != u.id:
+            return Response(status=403)
+        if "status" in request.data:
+            task.status = request.data["status"]
+            if request.data["status"] == "DONE":
+                task.completed_at = timezone.now()
+            else:
+                task.completed_at = None
+        if "comment" in request.data:
+            task.comment = request.data["comment"]
+        # Admin-only fields
+        if u.is_admin:
+            for field in ["title", "description", "priority", "due_date", "start_date", "assigned_to"]:
+                if field in request.data:
+                    setattr(task, field, request.data[field])
+        task.save()
+        return Response(AdHocTaskSerializer(task).data)
+
+    @action(detail=True, methods=["get", "post", "delete"])
+    def attachments(self, request, pk=None):
+        task = self.get_object()
+        if request.method == "GET":
+            return Response(AdHocTaskAttachmentSerializer(task.attachments.all(), many=True).data)
+        if request.method == "POST":
+            f = request.FILES.get("file")
+            if not f:
+                return Response({"detail": "No file provided."}, status=400)
+            att = AdHocTaskAttachment.objects.create(
+                task=task, file=f, title=request.data.get("title", f.name)
+            )
+            return Response(AdHocTaskAttachmentSerializer(att).data, status=201)
+        # DELETE — expects attachment_id in query params
+        att_id = request.query_params.get("attachment_id")
+        if att_id:
+            task.attachments.filter(id=att_id).delete()
+        return Response(status=204)

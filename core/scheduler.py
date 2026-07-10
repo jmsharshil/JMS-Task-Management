@@ -41,7 +41,7 @@ def execute_job(job_id):
 
 def check_scheduled_tasks():
     now = timezone.localtime()
-    
+
     # 08:30 Mon-Fri - daily digest
     if now.weekday() < 5 and now.hour == 8 and now.minute >= 30:
         ran_today = BackgroundJob.objects.filter(
@@ -61,6 +61,49 @@ def check_scheduled_tasks():
         if not ran_today:
             from notifications.tasks import send_weekly_reports
             send_weekly_reports() # Enqueues job
+
+    # 3-hourly task reminders at 12, 15, 18 Mon-Fri
+    if now.weekday() < 5 and now.hour in (12, 15, 18):
+        key = f"notifications.tasks.send_task_reminders"
+        ran_this_hour = BackgroundJob.objects.filter(
+            task_name=key,
+            created_at__date=now.date(),
+            created_at__hour=now.hour
+        ).exists()
+        if not ran_this_hour:
+            from notifications.tasks import send_task_reminders
+            send_task_reminders()
+
+    # 18:30 Mon-Fri - archive daily report PDFs
+    if now.weekday() < 5 and now.hour >= 18 and now.minute >= 30:
+        key = "notifications.tasks.archive_daily_report_pdf"
+        ran_today = BackgroundJob.objects.filter(
+            task_name=key,
+            created_at__date=now.date()
+        ).exists()
+        if not ran_today:
+            from core.models import Project
+            from notifications.tasks import archive_daily_report_pdf
+            today_str = now.date().isoformat()
+            for p in Project.objects.all():
+                if p.tasks.filter(date=now.date()).exists():
+                    archive_daily_report_pdf(p.id, today_str)
+
+    # 18:30 Friday - archive weekly report PDFs
+    if now.weekday() == 4 and now.hour >= 18 and now.minute >= 30:
+        key = "notifications.tasks.archive_weekly_report_pdf"
+        ran_today = BackgroundJob.objects.filter(
+            task_name=key,
+            created_at__date=now.date()
+        ).exists()
+        if not ran_today:
+            from core.models import Project
+            from notifications.tasks import archive_weekly_report_pdf
+            today = now.date()
+            for p in Project.objects.all():
+                weeks_active = p.tasks.filter(date__lte=today).values_list("week", flat=True)
+                if weeks_active:
+                    archive_weekly_report_pdf(p.id, max(weeks_active))
 
 def run_scheduler_loop():
     executor = ThreadPoolExecutor(max_workers=5)

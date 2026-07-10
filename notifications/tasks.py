@@ -114,3 +114,85 @@ def email_weekly_report(project_id, week):
     context = weekly_report_context(p, week)
     html_message = render_to_string("notifications/emails/weekly_report.html", context)
     email(settings.ADMIN_REPORT_EMAIL, f"Weekly Report — {p.name} — W{week}", text_body, html_message=html_message)
+
+
+@background_task
+def send_task_reminders():
+    """3-hourly nudge: email developers who have pending tasks for today."""
+    from core.models import Task
+    today = timezone.localdate()
+    pending = Task.objects.filter(date=today, status="TODO").select_related("developer", "project")
+    by_dev = {}
+    for t in pending:
+        by_dev.setdefault(t.developer, []).append(t)
+    for dev, items in by_dev.items():
+        ctx_tasks = [{"day_num": t.day_num, "project_name": t.project.name, "module": t.module or "General", "title": t.title} for t in items]
+        body = (f"Hi {dev.first_name},\n\nYou still have {len(items)} pending task(s) for today ({today:%d %b}):\n\n"
+                + "\n".join(f"  [ ] D{t.day_num} · {t.project.name} · {t.title}" for t in items)
+                + "\n\nPlease mark them done in the Hub.\n\n— JMS Delivery Hub")
+        html_message = render_to_string("notifications/emails/task_reminder.html", {
+            "first_name": dev.first_name, "today": today.strftime("%A, %d %b"),
+            "task_count": len(items), "tasks": ctx_tasks
+        })
+        email(dev.email, f"⏰ {len(items)} pending task(s) — {today:%d %b}", body, html_message=html_message)
+
+
+@background_task
+def archive_weekly_report_pdf(project_id, week):
+    """Generate the weekly report PDF and save it as a ProjectDocument."""
+    from core.models import Project, ProjectDocument
+    from core.services import weekly_report_context, render_report_pdf
+    from django.core.files.base import ContentFile
+    from django.utils.text import slugify
+    p = Project.objects.get(id=project_id)
+    context = weekly_report_context(p, week)
+    html = render_to_string("notifications/emails/weekly_report.html", context)
+    try:
+        pdf_bytes = render_report_pdf(html)
+    except RuntimeError:
+        return  # silently skip if no PDF engine
+    filename = f"{slugify(p.name)}_W{week}_report.pdf"
+    doc = ProjectDocument(project=p, title=f"Weekly Report W{week} (auto)")
+    doc.file.save(filename, ContentFile(pdf_bytes), save=True)
+
+
+@background_task
+def archive_daily_report_pdf(project_id, date_str):
+    """Generate the daily report PDF and save it as a ProjectDocument."""
+    from datetime import date as date_cls
+    from core.models import Project, ProjectDocument
+    from core.services import daily_report_context, render_report_pdf
+    from django.core.files.base import ContentFile
+    from django.utils.text import slugify
+    p = Project.objects.get(id=project_id)
+    report_date = date_cls.fromisoformat(date_str)
+    context = daily_report_context(p, report_date)
+    html = render_to_string("notifications/emails/daily_report.html", context)
+    try:
+        pdf_bytes = render_report_pdf(html)
+    except RuntimeError:
+        return
+    filename = f"{slugify(p.name)}_{date_str}_daily_report.pdf"
+    doc = ProjectDocument(project=p, title=f"Daily Report {date_str} (auto)")
+    doc.file.save(filename, ContentFile(pdf_bytes), save=True)
+
+
+@background_task
+def send_adhoc_task_assigned(task_id):
+    """Email the assignee when an ad-hoc task is assigned to them."""
+    from core.models import AdHocTask
+    t = AdHocTask.objects.select_related("assigned_to", "created_by").get(id=task_id)
+    u = t.assigned_to
+    body = (f"Hi {u.first_name},\n\n{t.created_by.get_full_name()} assigned you a new task:\n\n"
+            f"  {t.title}\n  Priority: {t.priority}\n  Due: {t.due_date:%d %b %Y}\n\n"
+            f"Open the Hub to view details.\n\n— JMS Delivery Hub")
+    html_message = render_to_string("notifications/emails/task_assigned.html", {
+        "first_name": u.first_name,
+        "created_by_name": t.created_by.get_full_name(),
+        "task_title": t.title,
+        "description": t.description,
+        "priority": t.priority,
+        "start_date": t.start_date.strftime("%d %b %Y") if t.start_date else None,
+        "due_date": t.due_date.strftime("%d %b %Y"),
+    })
+    email(u.email, f"New task assigned: {t.title}", body, html_message=html_message)

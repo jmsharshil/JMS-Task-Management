@@ -51,12 +51,30 @@ class Task(models.Model):
     title = models.CharField(max_length=240)
     status = models.CharField(max_length=6, choices=Status.choices, default=Status.TODO)
     done_at = models.DateTimeField(null=True, blank=True)
+    comment = models.TextField(blank=True)
 
     class Meta:
         ordering = ["date", "developer_id"]
 
     def __str__(self):
         return f"D{self.day_num} {self.developer} — {self.title}"
+
+
+class ProjectDocument(models.Model):
+    """Extra files attached to a project (SOW revisions, specs, design docs, etc.)."""
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="documents")
+    title = models.CharField(max_length=200)
+    file = models.FileField(upload_to="project_docs/")
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-uploaded_at"]
+
+    def __str__(self):
+        return f"{self.project.name} — {self.title}"
 
 
 class Update(models.Model):
@@ -68,6 +86,57 @@ class Update(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class AdHocTask(models.Model):
+    """Standalone tasks assigned by admin to team members, not tied to any project."""
+    class Priority(models.TextChoices):
+        LOW = "LOW", "Low"
+        MEDIUM = "MEDIUM", "Medium"
+        HIGH = "HIGH", "High"
+        URGENT = "URGENT", "Urgent"
+
+    class Status(models.TextChoices):
+        TODO = "TODO", "To Do"
+        IN_PROGRESS = "IN_PROGRESS", "In Progress"
+        DONE = "DONE", "Done"
+
+    title = models.CharField(max_length=300)
+    description = models.TextField(blank=True)
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="adhoc_tasks"
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="adhoc_tasks_created"
+    )
+    priority = models.CharField(max_length=8, choices=Priority.choices, default=Priority.MEDIUM)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.TODO)
+    start_date = models.DateField(null=True, blank=True)
+    due_date = models.DateTimeField()
+    comment = models.TextField(blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["due_date", "-priority", "created_at"]
+
+    def __str__(self):
+        return f"{self.title} → {self.assigned_to}"
+
+
+class AdHocTaskAttachment(models.Model):
+    """File attachments on ad-hoc tasks."""
+    task = models.ForeignKey(AdHocTask, on_delete=models.CASCADE, related_name="attachments")
+    file = models.FileField(upload_to="adhoc_attachments/")
+    title = models.CharField(max_length=200)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-uploaded_at"]
+
+    def __str__(self):
+        return f"{self.task.title} — {self.title}"
 
 
 class BackgroundJob(models.Model):

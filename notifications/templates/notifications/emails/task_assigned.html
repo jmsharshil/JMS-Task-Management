@@ -1,0 +1,35 @@
+{% extends "notifications/emails/base.html" %}
+
+{% block title %}New Task Assigned — {{ task_title }}{% endblock %}
+{% block header_title %}New Task Assigned 📌{% endblock %}
+{% block header_subtitle %}<p class="subtitle">You've been assigned a new task</p>{% endblock %}
+
+{% block content %}
+<p class="greeting">Hi {{ first_name }},</p>
+
+<p>{{ created_by_name }} has assigned you a new task:</p>
+
+<div class="info-card">
+  <p>TASK</p>
+  <p class="value">{{ task_title }}</p>
+</div>
+
+{% if description %}
+<div class="info-card">
+  <p>DESCRIPTION</p>
+  <p class="value">{{ description }}</p>
+</div>
+{% endif %}
+
+<div class="info-card">
+  <p>PRIORITY</p>
+  <p class="value" style="color: {% if priority == 'URGENT' %}#ef4444{% elif priority == 'HIGH' %}#f97316{% elif priority == 'MEDIUM' %}#eab308{% else %}#22c55e{% endif %};">{{ priority }}</p>
+</div>
+
+<div class="info-card">
+  <p>DUE DATE</p>
+  <p class="value">{% if start_date %}{{ start_date }} → {% endif %}{{ due_date }}</p>
+</div>
+
+<p>Open the Hub to view details and start working on it.</p>
+{% endblock %}
