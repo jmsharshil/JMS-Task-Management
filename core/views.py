@@ -109,9 +109,12 @@ class ProjectViewSet(viewsets.ModelViewSet):
             sow_pdf=request.FILES.get("sow_pdf")
         )
         project.team.set(team_data)
+        current_week = int(data.get("current_week", 1))
         Task.objects.bulk_create([
             Task(project=project, day_num=r["day_num"], date=r["date"], week=r["week"],
-                 developer_id=r["developer_id"], module=r["module"], title=r["title"])
+                 developer_id=r["developer_id"], module=r["module"], title=r["title"],
+                 status="DONE" if r["week"] < current_week else "TODO",
+                 done_at=timezone.now() if r["week"] < current_week else None)
             for r in rows_data
         ])
         Update.objects.create(project=project, author=request.user,
