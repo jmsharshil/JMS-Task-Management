@@ -28,6 +28,19 @@ def send_welcome_email(user_id, password):
 
 
 @background_task
+def send_password_reset_email(user_id, new_password):
+    from accounts.models import User
+    u = User.objects.get(id=user_id)
+    body = (f"Hi {u.first_name},\n\nYour JMS Delivery Hub password has been reset by an administrator.\n"
+            f"Login: {u.email}\nNew password: {new_password}\n\n"
+            "Please sign in and change your password.\n\n— JMS Tech")
+    html_message = render_to_string("notifications/emails/password_reset.html", {
+        "first_name": u.first_name, "email": u.email, "password": new_password
+    })
+    email(u.email, "Your JMS Delivery Hub password has been reset", body, html_message=html_message)
+
+
+@background_task
 def send_plan_published(project_id):
     from core.models import Project
     p = Project.objects.get(id=project_id)

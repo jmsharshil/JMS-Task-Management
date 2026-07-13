@@ -247,10 +247,37 @@ def daily_report_text(project, report_date):
 
 # ---------- PDF rendering ----------
 
+def _embed_external_images(html_string):
+    """
+    Replace external img src="https://..." with base64 data URIs so PDF
+    renderers that cannot make HTTP requests (xhtml2pdf) can display images.
+    Also strips width/height attributes that cause xhtml2pdf to missize logos.
+    """
+    import re, base64
+    try:
+        from urllib.request import urlopen
+        from urllib.error import URLError
+    except ImportError:
+        return html_string
+
+    def _to_data_uri(match):
+        url = match.group(1)
+        try:
+            with urlopen(url, timeout=6) as resp:
+                ct = resp.headers.get_content_type() or "image/png"
+                data = base64.b64encode(resp.read()).decode()
+                return f'src="data:{ct};base64,{data}"'
+        except Exception:
+            return match.group(0)   # keep original if fetch fails
+
+    return re.sub(r'src="(https?://[^"]+)"', _to_data_uri, html_string)
+
+
 def render_report_pdf(html_string):
     """Render HTML string to PDF bytes. Uses WeasyPrint if available, otherwise xhtml2pdf."""
     try:
         from weasyprint import HTML
+        # WeasyPrint can fetch URLs itself, no pre-processing needed
         return HTML(string=html_string).write_pdf()
     except (ImportError, OSError):
         pass
@@ -258,6 +285,8 @@ def render_report_pdf(html_string):
     try:
         import io
         from xhtml2pdf import pisa
+        # xhtml2pdf cannot fetch external URLs — embed images as base64 first
+        html_string = _embed_external_images(html_string)
         buf = io.BytesIO()
         pisa_status = pisa.CreatePDF(html_string, dest=buf)
         if pisa_status.err:
