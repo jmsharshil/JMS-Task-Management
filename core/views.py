@@ -21,6 +21,7 @@ from django.utils.text import slugify
 
 from logging import getLogger
 logger = getLogger(__name__)
+from .pagination import OptionalPagination
 
 class ClientViewSet(viewsets.ModelViewSet):
     queryset = Client.objects.all().order_by("name")
@@ -31,6 +32,7 @@ class ClientViewSet(viewsets.ModelViewSet):
 class ProjectViewSet(viewsets.ModelViewSet):
     serializer_class = ProjectSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+    pagination_class = OptionalPagination
 
     def get_queryset(self):
         qs = Project.objects.all().order_by("-created_at")
@@ -39,7 +41,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return qs
 
     def get_permissions(self):
-        if self.action in ("list", "retrieve", "report", "gantt", "gantt_pdf"):
+        if self.action in ("list", "retrieve", "report", "gantt", "gantt_pdf", "project_updates", "documents"):
             return super().get_permissions()
         return [IsAdmin()]
 
@@ -380,6 +382,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
 class TaskViewSet(viewsets.ModelViewSet):
     serializer_class = TaskSerializer
     http_method_names = ["get", "patch"]
+    pagination_class = OptionalPagination
 
     def get_queryset(self):
         qs = Task.objects.select_related("developer", "project")
@@ -392,7 +395,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         mine = self.request.query_params.get("mine")
         if mine:
             qs = qs.filter(developer=u)
-        return qs
+        return qs.order_by("date")
 
     def partial_update(self, request, *args, **kwargs):
         task = self.get_object()
@@ -444,6 +447,7 @@ class AdHocTaskViewSet(viewsets.ModelViewSet):
     """CRUD for standalone tasks not tied to projects."""
     serializer_class = AdHocTaskSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+    pagination_class = OptionalPagination
 
     def get_queryset(self):
         u = self.request.user
