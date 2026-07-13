@@ -89,16 +89,19 @@ class AdHocTaskAttachmentSerializer(serializers.ModelSerializer):
 
 
 class AdHocTaskSerializer(serializers.ModelSerializer):
-    assigned_to_name = serializers.CharField(source="assigned_to.get_full_name", read_only=True)
+    assignees_names = serializers.SerializerMethodField()
     created_by_name = serializers.CharField(source="created_by.get_full_name", read_only=True)
     attachments = AdHocTaskAttachmentSerializer(many=True, read_only=True)
 
     class Meta:
         model = AdHocTask
         fields = [
-            "id", "title", "description", "assigned_to", "assigned_to_name",
+            "id", "title", "description", "assignees", "assignees_names",
             "created_by", "created_by_name", "priority", "status",
             "start_date", "due_date", "comment", "completed_at",
             "created_at", "updated_at", "attachments",
         ]
         read_only_fields = ["created_by", "completed_at", "created_at", "updated_at"]
+
+    def get_assignees_names(self, obj):
+        return ", ".join([u.get_full_name() for u in obj.assignees.all()])

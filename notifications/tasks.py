@@ -194,18 +194,22 @@ def archive_daily_report_pdf(project_id, date_str):
 def send_adhoc_task_assigned(task_id):
     """Email the assignee when an ad-hoc task is assigned to them."""
     from core.models import AdHocTask
-    t = AdHocTask.objects.select_related("assigned_to", "created_by").get(id=task_id)
-    u = t.assigned_to
-    body = (f"Hi {u.first_name},\n\n{t.created_by.get_full_name()} assigned you a new task:\n\n"
-            f"  {t.title}\n  Priority: {t.priority}\n  Due: {t.due_date:%d %b %Y}\n\n"
-            f"Open the Hub to view details.\n\n— JMS Delivery Hub")
-    html_message = render_to_string("notifications/emails/task_assigned.html", {
-        "first_name": u.first_name,
-        "created_by_name": t.created_by.get_full_name(),
-        "task_title": t.title,
-        "description": t.description,
-        "priority": t.priority,
-        "start_date": t.start_date.strftime("%d %b %Y") if t.start_date else None,
-        "due_date": t.due_date.strftime("%d %b %Y"),
-    })
-    email(u.email, f"New task assigned: {t.title}", body, html_message=html_message)
+    t = AdHocTask.objects.select_related("created_by").prefetch_related("assignees").get(id=task_id)
+    assignees = t.assignees.all()
+    if not assignees:
+        return
+
+    for u in assignees:
+        body = (f"Hi {u.first_name},\n\n{t.created_by.get_full_name()} assigned you a new task:\n\n"
+                f"  {t.title}\n  Priority: {t.priority}\n  Due: {t.due_date:%d %b %Y}\n\n"
+                f"Open the Hub to view details.\n\n— JMS Delivery Hub")
+        html_message = render_to_string("notifications/emails/task_assigned.html", {
+            "first_name": u.first_name,
+            "created_by_name": t.created_by.get_full_name(),
+            "task_title": t.title,
+            "description": t.description,
+            "priority": t.priority,
+            "start_date": t.start_date.strftime("%d %b %Y") if t.start_date else None,
+            "due_date": t.due_date.strftime("%d %b %Y"),
+        })
+        email(u.email, f"New task assigned: {t.title}", body, html_message=html_message)

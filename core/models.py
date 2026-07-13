@@ -103,8 +103,8 @@ class AdHocTask(models.Model):
 
     title = models.CharField(max_length=300)
     description = models.TextField(blank=True)
-    assigned_to = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="adhoc_tasks"
+    assignees = models.ManyToManyField(
+        settings.AUTH_USER_MODEL, related_name="assigned_adhoc_tasks", blank=True
     )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="adhoc_tasks_created"

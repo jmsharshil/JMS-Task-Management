@@ -447,19 +447,31 @@ class AdHocTaskViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         u = self.request.user
-        qs = AdHocTask.objects.select_related("assigned_to", "created_by").prefetch_related("attachments")
+        qs = AdHocTask.objects.prefetch_related("assignees", "attachments").select_related("created_by")
         if not u.is_admin:
-            qs = qs.filter(assigned_to=u)
+            qs = qs.filter(assignees=u)
         assignee = self.request.query_params.get("assignee")
         if assignee:
-            qs = qs.filter(assigned_to_id=assignee)
+            qs = qs.filter(assignees__id=assignee)
         status_filter = self.request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter)
         priority = self.request.query_params.get("priority")
         if priority:
             qs = qs.filter(priority=priority)
-        return qs
+        return qs.distinct()
+
+    def create(self, request, *args, **kwargs):
+        # We need to extract assignees if they come in as multiple form fields
+        data = request.data.copy()
+        if hasattr(request.data, "getlist") and "assignees" in request.data:
+            data.setlist("assignees", request.data.getlist("assignees"))
+        
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=201, headers=headers)
 
     def perform_create(self, serializer):
         task = serializer.save(created_by=self.request.user)
@@ -472,7 +484,8 @@ class AdHocTaskViewSet(viewsets.ModelViewSet):
         task = self.get_object()
         u = request.user
         # Non-admin can only update status and comment on their own tasks
-        if not u.is_admin and task.assigned_to_id != u.id:
+        is_assignee = task.assignees.filter(id=u.id).exists()
+        if not u.is_admin and not is_assignee:
             return Response(status=403)
         if "status" in request.data:
             task.status = request.data["status"]
@@ -484,9 +497,17 @@ class AdHocTaskViewSet(viewsets.ModelViewSet):
             task.comment = request.data["comment"]
         # Admin-only fields
         if u.is_admin:
-            for field in ["title", "description", "priority", "due_date", "start_date", "assigned_to"]:
+            for field in ["title", "description", "priority", "due_date", "start_date"]:
                 if field in request.data:
                     setattr(task, field, request.data[field])
+            
+            if "assignees" in request.data:
+                assignee_ids = request.data.getlist("assignees") if hasattr(request.data, "getlist") else request.data.get("assignees")
+                if assignee_ids is not None:
+                    # ensure it's a list
+                    if not isinstance(assignee_ids, list):
+                        assignee_ids = [assignee_ids]
+                    task.assignees.set(assignee_ids)
         task.save()
         return Response(AdHocTaskSerializer(task).data)
 
