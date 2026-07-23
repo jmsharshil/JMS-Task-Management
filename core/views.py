@@ -125,6 +125,79 @@ class ProjectViewSet(viewsets.ModelViewSet):
         notify.send_plan_published(project.id)
         return Response(ProjectSerializer(project).data, status=status.HTTP_201_CREATED)
 
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+
+        old_start_date = instance.start_date
+        old_weeks = instance.weeks
+        old_team_ids = set(instance.team.values_list('id', flat=True))
+
+        data = request.data.copy()
+        if "team" in data and isinstance(data["team"], str):
+            team_str = data["team"]
+            team_list = [int(x) for x in team_str.split(",") if x.strip()]
+            if hasattr(data, 'setlist'):
+                data.setlist("team", team_list)
+            else:
+                data["team"] = team_list
+
+        serializer = self.get_serializer(instance, data=data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        instance.refresh_from_db()
+
+        new_team_ids = set(instance.team.values_list('id', flat=True))
+
+        start_date_changed = old_start_date != instance.start_date
+        weeks_changed = old_weeks != instance.weeks
+        team_changed = old_team_ids != new_team_ids
+
+        if weeks_changed or team_changed or "sow_pdf" in request.FILES:
+            done_tasks = instance.tasks.filter(status="DONE")
+            done_keys = set(done_tasks.values_list("day_num", "developer_id"))
+            done_titles = list(done_tasks.values_list("title", flat=True))
+
+            days = instance.working_days()
+            devs = list(instance.team.all())
+            brief = {"summary": instance.brief_summary, "modules": instance.brief_modules}
+
+            if "sow_pdf" in request.FILES:
+                try:
+                    pdf = request.FILES["sow_pdf"]
+                    brief = planner.extract_brief(file_bytes=pdf.read(), filename=pdf.name)
+                    instance.brief_summary = brief.get("summary", instance.brief_summary)
+                    instance.brief_modules = brief.get("modules", instance.brief_modules)
+                    instance.save(update_fields=['brief_summary', 'brief_modules'])
+                except Exception as e:
+                    logger.error(f"Failed to extract brief during update: {e}")
+
+            try:
+                rows = build_plan_rows(instance.name, instance.weeks, devs, days, brief, week_from=1, done_titles=done_titles)
+                rows = [r for r in rows if (r["day_num"], r["developer_id"]) not in done_keys]
+                instance.tasks.exclude(status="DONE").delete()
+
+                Task.objects.bulk_create([
+                    Task(project=instance, day_num=r["day_num"], date=r["date"], week=r["week"],
+                         developer_id=r["developer_id"], module=r["module"], title=r["title"])
+                    for r in rows
+                ])
+                Update.objects.create(project=instance, author=request.user, text="Project details updated. Plan was automatically recalculated.")
+            except Exception as e:
+                logger.error(f"Failed to rebuild plan during update: {e}")
+
+        elif start_date_changed:
+            days = instance.working_days()
+            tasks_to_update = []
+            for t in instance.tasks.all():
+                if 1 <= t.day_num <= len(days):
+                    t.date = days[t.day_num - 1]
+                    tasks_to_update.append(t)
+            Task.objects.bulk_update(tasks_to_update, ['date'])
+            Update.objects.create(project=instance, author=request.user, text="Project start date was adjusted. Task dates have been shifted accordingly.")
+
+        return Response(ProjectSerializer(instance).data)
+
     # ---- Adjust plan mid-project (FDD change) ------------------------------
     @action(detail=True, methods=["post"], url_path="adjust")
     def adjust(self, request, pk=None):

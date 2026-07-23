@@ -105,6 +105,9 @@ def check_scheduled_tasks():
                 if weeks_active:
                     archive_weekly_report_pdf(p.id, max(weeks_active))
 
+    # Cleanup already run tasks (dead threads) to keep DB clean
+    BackgroundJob.objects.filter(status=BackgroundJob.Status.DONE).delete()
+
 def run_scheduler_loop():
     executor = ThreadPoolExecutor(max_workers=5)
     while True:
