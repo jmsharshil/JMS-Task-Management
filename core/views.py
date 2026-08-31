@@ -9,10 +9,11 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from accounts.models import User
 from accounts.permissions import IsAdmin
 from ai import planner
-from .models import Client, Project, Task, Update, ProjectDocument, AdHocTask, AdHocTaskAttachment
+from .models import Client, Project, Task, Update, ProjectDocument, AdHocTask, AdHocTaskAttachment, ProjectArchitecture
 from .serializers import (ClientSerializer, ProjectSerializer, TaskSerializer,
                           UpdateSerializer, ProjectDocumentSerializer,
-                          AdHocTaskSerializer, AdHocTaskAttachmentSerializer)
+                          AdHocTaskSerializer, AdHocTaskAttachmentSerializer,
+                          ProjectArchitectureSerializer)
 from .services import (build_plan_rows, weekly_report_text, weekly_report_context,
                        summary_stats_text, build_gantt_pdf_context,
                        daily_report_context, daily_report_text, render_report_pdf)
@@ -49,12 +50,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["post"], url_path="generate-plan")
     def generate_plan(self, request):
         """
-        Multipart or JSON. Fields: name, start_date, weeks, team (ids, comma or list),
-        doc_text (optional), sow_pdf (optional file). Returns a DRAFT plan + brief —
-        nothing is saved until POST /projects/ with the confirmed rows.
+        Now gated behind approved architecture (two-stage workflow). 
+        Requires architecture_id. Returns draft plan enriched with architecture context.
         """
         name = request.data.get("name", "Project")
         weeks = int(request.data.get("weeks", 8))
+        architecture_id = request.data.get("architecture_id")
+        if not architecture_id:
+            return Response({"detail": "architecture_id (from approved architecture) is required."}, status=400)
+
         team_ids = request.data.get("team")
         if isinstance(team_ids, str):
             team_ids = [int(x) for x in team_ids.split(",") if x.strip()]
@@ -62,10 +66,17 @@ class ProjectViewSet(viewsets.ModelViewSet):
         if not devs:
             return Response({"detail": "Select at least one developer."}, status=400)
 
+        try:
+            arch_obj = ProjectArchitecture.objects.get(id=architecture_id, status="APPROVED")
+        except ProjectArchitecture.DoesNotExist:
+            return Response({"detail": "Approved architecture not found. Generate and approve one first."}, status=400)
+
         pdf = request.FILES.get("sow_pdf")
         doc_text = request.data.get("doc_text", "")
         if not pdf and not doc_text.strip():
             return Response({"detail": "Upload the SOW/FDD PDF or paste its scope text."}, status=400)
+
+        pdf_bytes = pdf.read() if pdf else None
 
         from datetime import date
         start = date.fromisoformat(request.data.get("start_date"))
@@ -73,15 +84,122 @@ class ProjectViewSet(viewsets.ModelViewSet):
         days = tmp.working_days()
 
         try:
-            brief = planner.extract_brief(file_bytes=pdf.read() if pdf else None, filename=pdf.name if pdf else "", doc_text=doc_text)
-            rows = build_plan_rows(name, weeks, devs, days, brief)
+            leader_ids = request.data.get("team_leaders")
+            leaders = []
+            if isinstance(leader_ids, str) and leader_ids.strip():
+                leader_ids_list = [int(x) for x in leader_ids.split(",") if x.strip()]
+                leaders = list(User.objects.filter(id__in=leader_ids_list))
+
+            brief = planner.extract_brief(file_bytes=pdf_bytes, filename=pdf.name if pdf else "", doc_text=doc_text)
+            # Inject architecture into brief so that weekly_plan / daily_tasks can produce better-aligned tasks
+            if isinstance(arch_obj.content, dict):
+                brief.setdefault("architecture", arch_obj.content)
+                brief.setdefault("architecture_id", architecture_id)
+            rows = build_plan_rows(name, weeks, devs, days, brief, leaders=leaders)
         except Exception as e:  # surface AI/parse errors cleanly
             return Response({"detail": f"Plan generation failed: {e}"}, status=502)
 
-        return Response({"brief": brief, "rows": rows})
+        return Response({
+            "brief": brief,
+            "rows": rows,
+            "architecture_id": architecture_id,
+            "architecture_summary": arch_obj.content.get("overview", "")[:120] if isinstance(arch_obj.content, dict) else ""
+        })
+
+    # ---- Architecture generation & approval (NEW gate before plan) -------------
+    @action(detail=False, methods=["post"], url_path="generate-architecture")
+    def generate_architecture(self, request):
+        """
+        First step in project creation: Generate high-level architecture doc from SOW.
+        Returns draft architecture JSON. Client must approve before generate-plan.
+        Supports team_leaders for better prompt guidance on task assignments.
+        """
+        name = request.data.get("name", "Project")
+        team_ids = request.data.get("team")
+        if isinstance(team_ids, str):
+            team_ids = [int(x) for x in team_ids.split(",") if x.strip()]
+        devs = list(User.objects.filter(id__in=team_ids or []))
+
+        leader_ids = request.data.get("team_leaders")
+        leaders = []
+        if isinstance(leader_ids, str) and leader_ids.strip():
+            leader_ids_list = [int(x) for x in leader_ids.split(",") if x.strip()]
+            leaders = list(User.objects.filter(id__in=leader_ids_list))
+
+        pdf = request.FILES.get("sow_pdf")
+        doc_text = request.data.get("doc_text", "")
+        if not pdf and not doc_text.strip():
+            return Response({"detail": "Upload the SOW/FDD PDF or paste its scope text."}, status=400)
+
+        pdf_bytes = pdf.read() if pdf else None
+        try:
+            arch = planner.generate_architecture(
+                project_name=name,
+                team=devs,
+                leaders=leaders,
+                file_bytes=pdf_bytes,
+                filename=pdf.name if pdf else "",
+                doc_text=doc_text
+            )
+            if "error" in arch:
+                return Response({"detail": arch["error"]}, status=502)
+            # Also return brief for convenience
+            brief = planner.extract_brief(
+                file_bytes=pdf_bytes,
+                filename=pdf.name if pdf else "",
+                doc_text=doc_text
+            )
+        except Exception as e:
+            logger.error(f"Architecture generation failed: {e}")
+            return Response({"detail": f"Architecture generation failed: {e}"}, status=502)
+
+        return Response({
+            "architecture": arch,
+            "brief": brief,
+            "message": "Review and approve this architecture before generating the detailed plan."
+        })
+
+    @action(detail=False, methods=["post"], url_path="approve-architecture")
+    def approve_architecture(self, request):
+        """
+        Approve (and optionally edit) the architecture document. Returns the saved record ID
+        to be passed to generate-plan or project creation.
+        """
+        arch_data = request.data.get("architecture", {})
+        if isinstance(arch_data, str):
+            import json
+            arch_data = json.loads(arch_data)
+
+        name = request.data.get("name")
+        project_id = request.data.get("project")  # if linking to existing draft
+
+        arch = ProjectArchitecture.objects.create(
+            title=f"Architecture for {name or 'New Project'}",
+            content=arch_data,
+            status="APPROVED",
+            approved_by=request.user,
+            approved_at=timezone.now(),
+            notes=request.data.get("notes", "")
+        )
+        if project_id:
+            try:
+                proj = Project.objects.get(id=project_id)
+                proj.architecture = arch  # since OneToOne, may need to handle if exists
+                proj.save()
+            except Project.DoesNotExist:
+                pass
+
+        return Response({
+            "id": arch.id,
+            "status": "APPROVED",
+            "architecture": ProjectArchitectureSerializer(arch).data,
+            "message": "Architecture approved. You may now generate the detailed project plan."
+        })
 
     def create(self, request, *args, **kwargs):
-        """Save a confirmed project + its (possibly edited) draft rows, then notify team."""
+        """Save a confirmed project + its (possibly edited) draft rows, then notify team.
+        Now requires approved architecture.
+        """
         data = request.data
         import json
         
@@ -96,12 +214,25 @@ class ProjectViewSet(viewsets.ModelViewSet):
             rows_data = json.loads(rows_data)
         rows_data = rows_data or []
         
+        arch_data = data.get("architecture")
+        if isinstance(arch_data, str):
+            arch_data = json.loads(arch_data)
+        arch_id = data.get("architecture_id") or (arch_data.get("id") if isinstance(arch_data, dict) else None)
+        
         team_data = data.get("team")
         if isinstance(team_data, str):
             team_data = team_data.split(",") if team_data else []
         elif not team_data:
             team_data = []
             
+        # Validate architecture approval
+        if not arch_id:
+            return Response({"detail": "Approved architecture_id is required."}, status=400)
+        try:
+            arch = ProjectArchitecture.objects.get(id=arch_id, status="APPROVED")
+        except ProjectArchitecture.DoesNotExist:
+            return Response({"detail": "Valid approved architecture is required before creating project plan."}, status=400)
+
         project = Project.objects.create(
             name=data["name"], client_id=data.get("client") or None,
             ref=data.get("ref", ""), start_date=data["start_date"],
@@ -111,6 +242,20 @@ class ProjectViewSet(viewsets.ModelViewSet):
             sow_pdf=request.FILES.get("sow_pdf")
         )
         project.team.set(team_data)
+        
+        # Set team leaders (subset of team)
+        leader_data = data.get("team_leaders")
+        if isinstance(leader_data, str):
+            leader_data = [int(x) for x in leader_data.split(",") if x.strip()]
+        if leader_data:
+            # ensure leaders are part of team
+            leader_data = [lid for lid in leader_data if int(lid) in [int(t) for t in team_data]]
+            project.team_leaders.set(leader_data)
+        
+        # Link architecture
+        arch.project = project
+        arch.save(update_fields=['project'])
+        
         current_week = int(data.get("current_week", 1))
         Task.objects.bulk_create([
             Task(project=project, day_num=r["day_num"], date=r["date"], week=r["week"],
@@ -120,8 +265,9 @@ class ProjectViewSet(viewsets.ModelViewSet):
             for r in rows_data
         ])
         Update.objects.create(project=project, author=request.user,
-                              text=f"Project kicked off — plan published. "
-                                   f"{project.tasks.count()} tasks across {project.weeks} weeks.")
+                              text=f"Architecture approved and project kicked off — plan published. "
+                                   f"{project.tasks.count()} tasks across {project.weeks} weeks. "
+                                   f"Architecture v{arch.version} approved.")
         notify.send_plan_published(project.id)
         return Response(ProjectSerializer(project).data, status=status.HTTP_201_CREATED)
 
@@ -161,6 +307,8 @@ class ProjectViewSet(viewsets.ModelViewSet):
             days = instance.working_days()
             devs = list(instance.team.all())
             brief = {"summary": instance.brief_summary, "modules": instance.brief_modules}
+            if instance.architecture and isinstance(instance.architecture.content, dict):
+                brief.setdefault("architecture", instance.architecture.content)
 
             if "sow_pdf" in request.FILES:
                 try:
@@ -169,11 +317,16 @@ class ProjectViewSet(viewsets.ModelViewSet):
                     instance.brief_summary = brief.get("summary", instance.brief_summary)
                     instance.brief_modules = brief.get("modules", instance.brief_modules)
                     instance.save(update_fields=['brief_summary', 'brief_modules'])
+                    # re-inject architecture
+                    if instance.architecture and isinstance(instance.architecture.content, dict):
+                        brief.setdefault("architecture", instance.architecture.content)
                 except Exception as e:
                     logger.error(f"Failed to extract brief during update: {e}")
 
             try:
-                rows = build_plan_rows(instance.name, instance.weeks, devs, days, brief, week_from=1, done_titles=done_titles)
+                leaders = list(instance.team_leaders.all())
+                rows = build_plan_rows(instance.name, instance.weeks, devs, days, brief,
+                                       leaders=leaders, week_from=1, done_titles=done_titles)
                 rows = [r for r in rows if (r["day_num"], r["developer_id"]) not in done_keys]
                 instance.tasks.exclude(status="DONE").delete()
 
@@ -218,13 +371,19 @@ class ProjectViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Timeline already ended — extend the project instead."}, status=400)
 
         brief = {"summary": project.brief_summary, "modules": project.brief_modules}
+        if project.architecture and isinstance(project.architecture.content, dict):
+            brief.setdefault("architecture", project.architecture.content)
         try:
             if pdf:
                 brief = planner.extract_brief(file_bytes=pdf.read(), filename=pdf.name)
+                # re-inject architecture after possible re-extract
+                if project.architecture and isinstance(project.architecture.content, dict):
+                    brief.setdefault("architecture", project.architecture.content)
             done_titles = list(project.tasks.filter(status="DONE").values_list("title", flat=True))
             devs = list(project.team.all())
+            leaders = list(project.team_leaders.all())
             rows = build_plan_rows(project.name, project.weeks, devs, days, brief,
-                                   week_from=week_from, change_note=note, done_titles=done_titles)
+                                   leaders=leaders, week_from=week_from, change_note=note, done_titles=done_titles)
         except Exception as e:
             return Response({"detail": f"Re-planning failed: {e}"}, status=502)
 
@@ -314,32 +473,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"detail": f"Summary failed: {e}"}, status=502)
         return Response({"text": text})
-
-    @action(detail=True, methods=["get"])
-    def gantt(self, request, pk=None):
-        """Per-developer module segments for the Gantt view."""
-        project = self.get_object()
-        n_days = project.weeks * 5
-        out = []
-        for dev in project.team.all():
-            by_day = {t.day_num: t for t in project.tasks.filter(developer=dev)}
-            segs, cur = [], None
-            for d in range(1, n_days + 1):
-                t = by_day.get(d)
-                mod = t.module if t else None
-                if cur and cur["module"] == mod:
-                    cur["len"] += 1
-                    cur["done"] += 1 if t and t.status == "DONE" else 0
-                else:
-                    if cur and cur["module"]:
-                        segs.append(cur)
-                    cur = {"start": d, "len": 1, "module": mod,
-                           "done": 1 if t and t.status == "DONE" else 0} if mod else None
-            if cur and cur["module"]:
-                segs.append(cur)
-            out.append({"developer": dev.get_full_name() or dev.email,
-                        "designation": dev.designation, "segments": segs})
-        return Response({"n_days": n_days, "rows": out})
 
     def _build_gantt_rows(self, project):
         """Shared by gantt() and gantt_pdf() so we only compute this once."""

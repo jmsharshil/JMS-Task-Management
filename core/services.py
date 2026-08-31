@@ -10,14 +10,21 @@ def _fmt(d):
 
 
 def build_plan_rows(project_name, weeks, devs, working_days, brief,
-                    week_from=1, change_note="", done_titles=None):
+                    leaders=None, week_from=1, change_note="", done_titles=None):
     """
-    devs: list of user objects. Returns list of dicts:
-    {day_num, date, week, developer_id, module, title}
+    devs: list of user objects. leaders: optional list of leader users.
+    brief may contain "architecture" from approved ProjectArchitecture.
+    Returns list of dicts: {day_num, date, week, developer_id, module, title}
+    Passes normalized leaders + full brief (with arch context) to planner.weekly_plan()
+    and daily_tasks() for AI alignment and leader bias.
     """
     dev_pairs = [(u.get_full_name() or u.email, u.designation or "Developer") for u in devs]
     by_name = { (u.get_full_name() or u.email).lower(): u for u in devs }
-    weekly = planner.weekly_plan(project_name, weeks, dev_pairs, brief,
+    lead_list = None
+    if leaders:
+        lead_list = [(u.get_full_name() or u.email, u.designation or "Lead") for u in leaders]
+
+    weekly = planner.weekly_plan(project_name, weeks, dev_pairs, brief, leaders=lead_list,
                                  week_from=week_from, change_note=change_note,
                                  done_titles=done_titles)
     rows = []
@@ -26,7 +33,8 @@ def build_plan_rows(project_name, weeks, devs, working_days, brief,
         labels = [f"D{(w-1)*5 + i + 1} ({_fmt(working_days[(w-1)*5 + i])})" for i in range(5)
                   if (w-1)*5 + i < len(working_days)]
         out = planner.daily_tasks(project_name, weeks, w, wk.get("focus", ""),
-                                  wk.get("modules", []), dev_pairs, labels, change_note)
+                                  wk.get("modules", []), dev_pairs, labels, leaders=lead_list,
+                                  brief=brief, change_note=change_note)
         for t in out:
             try:
                 day_num = int("".join(ch for ch in str(t.get("day", "")) if ch.isdigit()))
