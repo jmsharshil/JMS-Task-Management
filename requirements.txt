@@ -68,3 +68,5 @@ weasyprint==69.0
 webencodings==0.5.1
 whitenoise==6.12.0
 zopfli==0.4.3
+xhtml2pdf==0.2.17
+reportlab==4.2.2
