@@ -1,0 +1,37 @@
+{% extends "notifications/emails/base.html" %}
+{% block title %}Minutes of Meeting — {{ project_name }}{% endblock %}
+{% block header_title %}Minutes of Meeting{% endblock %}
+{% block header_subtitle %}<p class="subtitle">{{ project_name }} &middot; {{ meeting_date }}</p>{% endblock %}
+
+{% block content %}
+<div class="section-title">Meeting Details</div>
+<div class="text-body">
+  <strong>Subject:</strong> {{ mom_title }}<br>
+  <strong>Date:</strong> {{ meeting_date }}{% if meeting_time %} at {{ meeting_time }}{% endif %}<br>
+  <strong>Attendees:</strong> {{ attendees }}<br>
+  <strong>Recorded By:</strong> {{ created_by_name }}
+</div>
+
+<div class="section-title">Agenda</div>
+<div class="text-body" style="white-space: pre-wrap;">{{ agenda }}</div>
+
+<div class="section-title">Discussion Notes</div>
+<div class="text-body" style="white-space: pre-wrap;">{{ discussion }}</div>
+
+{% if decisions %}
+<div class="section-title">Decisions</div>
+<div class="text-body" style="white-space: pre-wrap;">{{ decisions }}</div>
+{% endif %}
+
+<div class="section-title">Action Items</div>
+<div class="text-body" style="white-space: pre-wrap;">{{ action_items }}</div>
+
+{% if next_meeting_date or next_meeting_time %}
+<div class="section-title">Next Meeting</div>
+<div class="text-body">
+  {% if next_meeting_date %}{{ next_meeting_date }}{% endif %}
+  {% if next_meeting_date and next_meeting_time %} at {% endif %}
+  {% if next_meeting_time %}{{ next_meeting_time }}{% endif %}
+</div>
+{% endif %}
+{% endblock %}

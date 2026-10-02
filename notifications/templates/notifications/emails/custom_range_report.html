@@ -1,0 +1,44 @@
+{% extends "notifications/emails/base.html" %}
+{% block title %}Task Report — {{ project_name }}{% endblock %}
+{% block header_title %}Task Report{% endblock %}
+{% block header_subtitle %}<p class="subtitle">{{ project_name }} &middot; {{ date_from }} to {{ date_to }}</p>{% endblock %}
+
+{% block content %}
+<table class="stats-table">
+  <tr>
+    <td class="stat-card">
+      <div class="stat-val">{{ done_all }}/{{ total }}</div>
+      <div class="stat-label">Overall Tasks Done</div>
+    </td>
+    <td class="stat-card">
+      <div class="stat-val">{{ done_range }}/{{ total_range }}</div>
+      <div class="stat-label">Period Tasks Done</div>
+    </td>
+  </tr>
+</table>
+
+{% if text %}
+<div class="section-title">Report Summary</div>
+<div class="text-body" style="white-space: pre-wrap;">{{ text }}</div>
+{% else %}
+<div class="section-title">Completed in Period</div>
+{% for task in completed_tasks %}
+<div class="item-card">
+  <span class="badge badge-success">D{{ task.day_num }}</span>
+  <span style="font-size: 13px; font-weight: 600; margin-left: 8px;">{{ task.module }}</span>
+  <div style="margin-top: 8px; font-size: 14px; color: #1e293b;">{{ task.title }}</div>
+  <div style="margin-top: 4px; font-size: 12px; color: #64748b;">Assigned to: {{ task.dev_name }}</div>
+</div>
+{% endfor %}
+
+<div class="section-title">Pending</div>
+{% for task in pending_tasks %}
+<div class="item-card">
+  <span class="badge badge-warning">D{{ task.day_num }}</span>
+  <span style="font-size: 13px; font-weight: 600; margin-left: 8px;">{{ task.module }}</span>
+  <div style="margin-top: 8px; font-size: 14px; color: #1e293b;">{{ task.title }}</div>
+  <div style="margin-top: 4px; font-size: 12px; color: #64748b;">Assigned to: {{ task.dev_name }}</div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

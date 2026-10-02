@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Client, Project, Task, Update, ProjectDocument, AdHocTask, AdHocTaskAttachment, ProjectArchitecture
+from .models import Client, Project, Task, Update, ProjectDocument, AdHocTask, AdHocTaskAttachment, ProjectArchitecture, MeetingMinutes, ProjectReportTemplate, OrganizationSettings
 
 AZURE_BLOB_PREFIX = "https://hrmsknowcraftstorage.blob.core.windows.net"
 
@@ -11,6 +11,7 @@ def _resolve_file_url(file_field):
     if url.startswith("/media/"):
         return f"{AZURE_BLOB_PREFIX}{url}"
     return url
+
 from accounts.serializers import UserSerializer
 
 
@@ -27,7 +28,8 @@ class TaskSerializer(serializers.ModelSerializer):
     class Meta:
         model = Task
         fields = ["id", "project", "project_name", "day_num", "date", "week",
-                  "developer", "developer_name", "module", "title", "status", "done_at", "comment"]
+                  "developer", "developer_name", "module", "title", "description",
+                  "status", "done_at", "comment", "is_additional", "priority"]
         read_only_fields = ["project", "day_num", "date", "week"]
 
 
@@ -125,3 +127,35 @@ class AdHocTaskSerializer(serializers.ModelSerializer):
 
     def get_assignees_detail(self, obj):
         return [{"id": u.id, "name": u.get_full_name() or u.username} for u in obj.assignees.all()]
+
+
+class MeetingMinutesSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source="created_by.get_full_name", read_only=True)
+
+    class Meta:
+        model = MeetingMinutes
+        fields = [
+            "id", "project", "title", "meeting_date", "meeting_time",
+            "attendees", "agenda", "discussion", "decisions", "action_items",
+            "next_meeting_date", "next_meeting_time",
+            "created_by", "created_by_name", "created_at", "updated_at",
+        ]
+        read_only_fields = ["created_by", "created_at", "updated_at"]
+
+
+class ReportFormatTemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProjectReportTemplate
+        fields = ["id", "project", "weekly_format", "daily_format", "custom_format", "updated_at"]
+        read_only_fields = ["project", "updated_at"]
+
+
+class OrganizationSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OrganizationSettings
+        fields = [
+            "id", "company_name", "company_tagline", "logo_url",
+            "pdf_accent_color", "pdf_header_text", "pdf_footer_text",
+            "email_signature", "updated_at",
+        ]
+        read_only_fields = ["updated_at"]

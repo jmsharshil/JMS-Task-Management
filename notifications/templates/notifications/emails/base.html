@@ -1,345 +1,58 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <title>{% block title %}JMS Delivery Hub{% endblock %}</title>
-  <!--[if mso]>
-<noscript>
-<xml>
-<o:OfficeDocumentSettings>
-<o:PixelsPerInch>96</o:PixelsPerInch>
-</o:OfficeDocumentSettings>
-</xml>
-</noscript>
-<![endif]-->
   <style>
-    /* Reset */
-    body,
-    table,
-    td,
-    p,
-    a,
-    li,
-    blockquote {
-      -webkit-text-size-adjust: 100%;
-      -ms-text-size-adjust: 100%;
-    }
+    body, table, td, p, a, h1, h2, h3, h4, h5, h6 { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; }
+    body { background-color: #f1f5f9; margin: 0; padding: 0; -webkit-text-size-adjust: 100%; }
+    .email-wrapper { width: 100%; background-color: #f1f5f9; padding: 40px 0; }
+    .email-container { max-width: 680px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+    .email-header { background-color: #ffffff; padding: 32px 40px 24px; border-bottom: 1px solid #e2e8f0; }
+    .header-logo { width: 48px; height: 48px; border-radius: 10px; margin-bottom: 16px; }
+    .email-header h1 { margin: 0; font-size: 22px; font-weight: 700; color: #0f172a; letter-spacing: -0.02em; }
+    .email-header .subtitle { margin: 8px 0 0; color: #64748b; font-size: 14px; font-weight: 500; }
+    .email-body { padding: 40px; }
+    .section-title { font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin: 32px 0 16px; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px; }
+    
+    .stats-table { width: 100%; margin-bottom: 32px; border-collapse: separate; border-spacing: 12px 0; }
+    .stat-card { background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; text-align: center; }
+    .stat-val { font-size: 28px; font-weight: 800; color: {% if org and org.pdf_accent_color %}{{ org.pdf_accent_color }}{% else %}#2563eb{% endif %}; margin-bottom: 4px; }
+    .stat-label { font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; }
 
-    table,
-    td {
-      mso-table-lspace: 0pt;
-      mso-table-rspace: 0pt;
-    }
-
-    img {
-      -ms-interpolation-mode: bicubic;
-      border: 0;
-      height: auto;
-      line-height: 100%;
-      outline: none;
-      text-decoration: none;
-    }
-
-    body {
-      margin: 0;
-      padding: 0;
-      width: 100% !important;
-      height: 100% !important;
-    }
-
-    /* Layout */
-    .email-wrapper {
-      width: 100%;
-      background-color: #0f172a;
-      padding: 32px 0;
-    }
-
-    .email-container {
-      max-width: 600px;
-      margin: 0 auto;
-      background-color: #1e293b;
-      border-radius: 16px;
-      overflow: hidden;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-    }
-
-    /* Header */
-    .email-header {
-      background: linear-gradient(135deg, #3b82f6 0%, #6366f1 50%, #8b5cf6 100%);
-      padding: 32px 40px;
-      text-align: center;
-    }
-
-    .email-header h1 {
-      margin: 0;
-      color: #ffffff;
-      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
-      font-size: 22px;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-    }
-
-    .email-header .subtitle {
-      margin: 6px 0 0 0;
-      color: rgba(255, 255, 255, 0.85);
-      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
-      font-size: 13px;
-      font-weight: 400;
-    }
-
-    /* Body */
-    .email-body {
-      padding: 36px 40px;
-    }
-
-    .email-body p {
-      margin: 0 0 16px 0;
-      color: #cbd5e1;
-      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
-      font-size: 15px;
-      line-height: 1.7;
-    }
-
-    .email-body .greeting {
-      color: #f1f5f9;
-      font-size: 17px;
-      font-weight: 600;
-      margin-bottom: 20px;
-    }
-
-    /* Cards / Info Boxes */
-    .info-card {
-      background-color: #0f172a;
-      border-radius: 12px;
-      padding: 20px 24px;
-      margin: 20px 0;
-      border-left: 4px solid #6366f1;
-    }
-
-    .info-card p {
-      margin: 0 0 8px 0;
-      color: #94a3b8;
-      font-size: 13px;
-    }
-
-    .info-card .value {
-      color: #e2e8f0;
-      font-size: 15px;
-      font-weight: 600;
-    }
-
-    /* Task List */
-    .task-list {
-      list-style: none;
-      padding: 0;
-      margin: 20px 0;
-    }
-
-    .task-item {
-      background-color: #0f172a;
-      border-radius: 10px;
-      padding: 14px 18px;
-      margin-bottom: 10px;
-      display: flex;
-      border: 1px solid rgba(99, 102, 241, 0.15);
-    }
-
-    .task-item .task-badge {
-      display: inline-block;
-      background: linear-gradient(135deg, #6366f1, #8b5cf6);
-      color: #fff;
-      font-size: 11px;
-      font-weight: 700;
-      padding: 3px 10px;
-      border-radius: 20px;
-      margin-right: 12px;
-      white-space: nowrap;
-      line-height: 20px;
-    }
-
-    .task-item .task-text {
-      color: #e2e8f0;
-      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
-      font-size: 14px;
-      line-height: 1.5;
-    }
-
-    .task-item .task-module {
-      color: #818cf8;
-      font-weight: 600;
-    }
-
-    /* Stats Grid */
-    .stats-grid {
-      margin: 20px 0;
-    }
-
-    .stat-box {
-      display: inline-block;
-      width: 47%;
-      background-color: #0f172a;
-      border-radius: 10px;
-      padding: 16px;
-      margin-bottom: 10px;
-      vertical-align: top;
-      text-align: center;
-    }
-
-    .stat-box .stat-number {
-      color: #818cf8;
-      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
-      font-size: 28px;
-      font-weight: 700;
-    }
-
-    .stat-box .stat-label {
-      color: #94a3b8;
-      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-top: 4px;
-    }
-
-    /* Buttons */
-    .btn {
-      display: inline-block;
-      background: linear-gradient(135deg, #6366f1, #8b5cf6);
-      color: #ffffff !important;
-      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
-      font-size: 14px;
-      font-weight: 600;
-      text-decoration: none;
-      padding: 12px 28px;
-      border-radius: 8px;
-      margin-top: 16px;
-    }
-
-    /* Divider */
-    .divider {
-      border: none;
-      border-top: 1px solid rgba(99, 102, 241, 0.2);
-      margin: 24px 0;
-    }
-
-    /* Footer */
-    .email-footer {
-      padding: 24px 40px;
-      text-align: center;
-      border-top: 1px solid rgba(99, 102, 241, 0.15);
-    }
-
-    .email-footer p {
-      margin: 0;
-      color: #64748b;
-      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
-      font-size: 12px;
-      line-height: 1.6;
-    }
-
-    .email-footer .brand {
-      color: #818cf8;
-      font-weight: 600;
-    }
-
-    /* Table fallback for Outlook */
-    .section-heading {
-      color: #a5b4fc;
-      font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
-      font-size: 13px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin: 24px 0 12px 0;
-    }
-
-    /* Developer name tag */
-    .dev-tag {
-      display: inline-block;
-      background-color: rgba(99, 102, 241, 0.15);
-      color: #a5b4fc;
-      font-size: 12px;
-      font-weight: 600;
-      padding: 2px 10px;
-      border-radius: 6px;
-    }
-
-    /* Responsive */
-    @media only screen and (max-width: 620px) {
-      .email-body {
-        padding: 24px 20px !important;
-      }
-
-      .email-header {
-        padding: 24px 20px !important;
-      }
-
-      .email-footer {
-        padding: 20px !important;
-      }
-
-      .stat-box {
-        width: 100% !important;
-        display: block !important;
-      }
+    .item-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 12px; background: #ffffff; }
+    .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; background: #eff6ff; color: {% if org and org.pdf_accent_color %}{{ org.pdf_accent_color }}{% else %}#2563eb{% endif %}; }
+    .badge-success { background: #dcfce7; color: #16a34a; }
+    .badge-warning { background: #fef3c7; color: #d97706; }
+    
+    .text-body { font-size: 14px; line-height: 1.6; color: #334155; }
+    
+    .email-footer { background-color: #f8fafc; padding: 24px 40px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 12px; color: #94a3b8; }
+    
+    @media print {
+      @page { size: A4; margin: 1.5cm; }
+      body { background-color: #ffffff !important; }
+      .email-wrapper { padding: 0 !important; background-color: transparent !important; }
+      .email-container { max-width: 100% !important; border: none !important; box-shadow: none !important; }
     }
   </style>
 </head>
-
 <body>
   <div class="email-wrapper">
-    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-      <tr>
-        <td align="center">
-          <table class="email-container" role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-            <!-- Header -->
-            <tr>
-              <td class="email-header" style="border-radius: 16px 16px 0 0;">
-                <img src="https://hrmsknowcraftstorage.blob.core.windows.net/media/JMS.png"
-                  alt="JMS Tech"
-                  style="display: block; margin: 0 auto 12px auto; width: 56px; height: 56px; max-width: 56px; max-height: 56px; border-radius: 12px; border: 2px solid rgba(255,255,255,0.25);" />
-                <h1>
-                  <a href="https://deliveryhub.jmstech.co/" target="_blank"
-                    style="color: #ffffff; text-decoration: none;">
-                    {% block header_title %}JMS Delivery Hub{% endblock %}
-                  </a>
-                </h1>
-                {% block header_subtitle %}<p class="subtitle">Project Management &amp; Delivery Tracking</p>{% endblock %}
-              </td>
-            </tr>
-
-            <!-- Body -->
-            <tr>
-              <td class="email-body">
-                {% block content %}{% endblock %}
-
-                <!-- CTA Button - JMS Delivery Hub (appears in all emails) -->
-                <div style="text-align: center; margin: 32px 0 10px 0;">
-                  <a href="https://deliveryhub.jmstech.co/" class="btn" target="_blank"
-                    style="color: #ffffff !important; text-decoration: none;">
-                    Open JMS Delivery Hub →
-                  </a>
-                </div>
-              </td>
-            </tr>
-
-            <!-- Footer -->
-            <tr>
-              <td class="email-footer" style="border-radius: 0 0 16px 16px;">
-                <p><a href="https://deliveryhub.jmstech.co/" target="_blank"
-                    style="color: #818cf8; text-decoration: none;" class="brand">JMS Delivery Hub</a> &middot; Powered by
-                  JMS Tech</p>
-                <p style="margin-top: 6px;">This is an automated notification. Please do not reply to this email.</p>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
+    <div class="email-container">
+      <div class="email-header">
+        {% if org and org.logo_url %}<img src="{{ org.logo_url }}" alt="Logo" class="header-logo" />{% endif %}
+        <h1>{% block header_title %}{% if org %}{{ org.company_name }}{% else %}JMS Delivery Hub{% endif %}{% endblock %}</h1>
+        {% if org and org.pdf_header_text %}<p class="subtitle" style="margin-top: 4px;">{{ org.pdf_header_text }}</p>{% endif %}
+        {% block header_subtitle %}{% endblock %}
+      </div>
+      <div class="email-body">
+        {% block content %}{% endblock %}
+      </div>
+      <div class="email-footer">
+        {% if org and org.pdf_footer_text %}{{ org.pdf_footer_text }}{% else %}Generated by JMS Delivery Hub &copy; 2026{% endif %}
+      </div>
+    </div>
   </div>
 </body>
-
 </html>

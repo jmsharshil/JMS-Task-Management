@@ -9,14 +9,19 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from accounts.models import User
 from accounts.permissions import IsAdmin
 from ai import planner
-from .models import Client, Project, Task, Update, ProjectDocument, AdHocTask, AdHocTaskAttachment, ProjectArchitecture
+from .models import (Client, Project, Task, Update, ProjectDocument,
+                     AdHocTask, AdHocTaskAttachment, ProjectArchitecture,
+                     MeetingMinutes, ProjectReportTemplate, OrganizationSettings)
 from .serializers import (ClientSerializer, ProjectSerializer, TaskSerializer,
                           UpdateSerializer, ProjectDocumentSerializer,
                           AdHocTaskSerializer, AdHocTaskAttachmentSerializer,
-                          ProjectArchitectureSerializer)
+                          ProjectArchitectureSerializer, MeetingMinutesSerializer,
+                          ReportFormatTemplateSerializer, OrganizationSettingsSerializer)
 from .services import (build_plan_rows, weekly_report_text, weekly_report_context,
                        summary_stats_text, build_gantt_pdf_context,
-                       daily_report_context, daily_report_text, render_report_pdf)
+                       daily_report_context, daily_report_text, render_report_pdf,
+                       custom_range_report_context, custom_range_report_text,
+                       mom_pdf_sections)
 from notifications import tasks as notify
 from django.utils.text import slugify
 
@@ -412,6 +417,70 @@ class ProjectViewSet(viewsets.ModelViewSet):
         return Response(ProjectSerializer(project).data)
 
     # ---- Reports / summary / gantt / updates --------------------------------
+
+    @action(detail=True, methods=["get"], url_path="share-link")
+    def share_link(self, request, pk=None):
+        from django.core.files.base import ContentFile
+        from django.utils.text import slugify
+        from datetime import date as date_cls
+        project = self.get_object()
+        report_type = request.query_params.get("type", "weekly")
+        
+        context = None
+        html_template = ""
+        filename = ""
+        title = ""
+        
+        if report_type == "weekly":
+            week = int(request.query_params.get("week", 1))
+            context = weekly_report_context(project, week)
+            html_template = "notifications/emails/weekly_report.html"
+            filename = f"{slugify(project.name)}_W{week}_report.pdf"
+            title = f"Weekly Report W{week} (Shared)"
+        elif report_type == "daily":
+            d = request.query_params.get("date")
+            report_date = date_cls.fromisoformat(d)
+            context = daily_report_context(project, report_date)
+            html_template = "notifications/emails/daily_report.html"
+            filename = f"{slugify(project.name)}_{d}_daily_report.pdf"
+            title = f"Daily Report {d} (Shared)"
+        elif report_type == "custom":
+            df = request.query_params.get("date_from")
+            dt = request.query_params.get("date_to")
+            date_from = date_cls.fromisoformat(df)
+            date_to = date_cls.fromisoformat(dt)
+            context = custom_range_report_context(project, date_from, date_to)
+            html_template = "notifications/emails/custom_range_report.html"
+            filename = f"{slugify(project.name)}_{df}_to_{dt}_report.pdf"
+            title = f"Custom Report {df} - {dt} (Shared)"
+        else:
+            return Response({"detail": "Invalid type"}, status=400)
+            
+        try:
+            from .models import OrganizationSettings
+            context["org"] = OrganizationSettings.get()
+        except Exception:
+            pass
+            
+        html = render_to_string(html_template, context)
+        try:
+            pdf_bytes = render_report_pdf(html)
+        except RuntimeError as e:
+            return Response({"detail": str(e)}, status=502)
+            
+        doc = ProjectDocument(project=project, title=title)
+        doc.file.save(filename, ContentFile(pdf_bytes), save=True)
+        
+        from django.conf import settings
+        if getattr(settings, "USE_AZURE_MEDIA", False):
+            account = getattr(settings, "AZURE_ACCOUNT_NAME", "hrmsknowcraftstorage")
+            container = getattr(settings, "AZURE_CONTAINER", "media")
+            url = f"https://{account}.blob.core.windows.net/{container}/{doc.file.name}"
+        else:
+            url = request.build_absolute_uri(doc.file.url)
+            
+        return Response({"link": url})
+
     @action(detail=True, methods=["get"])
     def report(self, request, pk=None):
         week = int(request.query_params.get("week", 1))
@@ -420,22 +489,37 @@ class ProjectViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="report/email", permission_classes=[IsAdmin])
     def email_report(self, request, pk=None):
         week = int(request.data.get("week", 1))
-        notify.email_weekly_report(self.get_object().id, week)
-        return Response({"detail": "Report is on its way to your inbox."})
+        recipients = request.data.get("email", "")
+        custom_text = request.data.get("text", None)
+        notify.email_weekly_report(
+            self.get_object().id, week,
+            recipient_email=recipients if recipients and recipients.strip() else None,
+            custom_text=custom_text
+        )
+        return Response({"detail": "Report is on its way."})
 
-    @action(detail=True, methods=["get"], url_path="report-pdf")
+    @action(detail=True, methods=["get", "post"], url_path="report-pdf")
     def report_pdf(self, request, pk=None):
-        """Download weekly report as PDF."""
+        """Download weekly report as PDF. Accepts optional custom text via POST body."""
         project = self.get_object()
         week = int(request.query_params.get("week", 1))
+        custom_text = request.data.get("text") if request.method == "POST" else None
         context = weekly_report_context(project, week)
+        try:
+            from .models import OrganizationSettings
+            context["org"] = OrganizationSettings.get()
+        except Exception:
+            pass
+
+        if custom_text:
+            context["custom_text"] = custom_text
         html = render_to_string("notifications/emails/weekly_report.html", context)
         try:
             pdf_bytes = render_report_pdf(html)
         except RuntimeError as e:
             return Response({"detail": str(e)}, status=502)
         resp = HttpResponse(pdf_bytes, content_type="application/pdf")
-        resp["Content-Disposition"] = f'attachment; filename="{slugify(project.name)}_W{week}_report.pdf"'
+        resp["Content-Disposition"] = f'attachment; filename="{slugify(project.name)}_week{week}_report.pdf"'
         return resp
 
     @action(detail=True, methods=["get"], url_path="daily-report")
@@ -449,14 +533,17 @@ class ProjectViewSet(viewsets.ModelViewSet):
         context["text"] = daily_report_text(project, report_date)
         return Response(context)
 
-    @action(detail=True, methods=["get"], url_path="daily-report-pdf")
+    @action(detail=True, methods=["get", "post"], url_path="daily-report-pdf")
     def daily_report_pdf(self, request, pk=None):
-        """Download daily report as PDF."""
+        """Download daily report as PDF. Accepts optional custom text via POST body."""
         from datetime import date as date_cls
         project = self.get_object()
         d = request.query_params.get("date")
         report_date = date_cls.fromisoformat(d) if d else timezone.localdate()
+        custom_text = request.data.get("text") if request.method == "POST" else None
         context = daily_report_context(project, report_date)
+        if custom_text:
+            context["custom_text"] = custom_text
         html = render_to_string("notifications/emails/daily_report.html", context)
         try:
             pdf_bytes = render_report_pdf(html)
@@ -465,6 +552,213 @@ class ProjectViewSet(viewsets.ModelViewSet):
         resp = HttpResponse(pdf_bytes, content_type="application/pdf")
         resp["Content-Disposition"] = f'attachment; filename="{slugify(project.name)}_{report_date}_daily_report.pdf"'
         return resp
+
+    @action(detail=True, methods=["post"], url_path="daily-report-email", permission_classes=[IsAdmin])
+    def email_daily_report(self, request, pk=None):
+        """Email a daily report with optional custom text and multiple recipients."""
+        from datetime import date as date_cls
+        project = self.get_object()
+        d = request.data.get("date")
+        recipients = request.data.get("email", "")
+        custom_text = request.data.get("text", None)
+        report_date = date_cls.fromisoformat(d) if d else timezone.localdate()
+        notify.email_daily_report(
+            project.id, str(report_date),
+            recipient_email=recipients if recipients and recipients.strip() else None,
+            custom_text=custom_text
+        )
+        return Response({"detail": "Daily report email queued."})
+
+    @action(detail=True, methods=["get"], url_path="custom-report")
+    def custom_report(self, request, pk=None):
+        """Get report data for a custom date range."""
+        from datetime import date as date_cls
+        project = self.get_object()
+        df = request.query_params.get("date_from")
+        dt = request.query_params.get("date_to")
+        if not df or not dt:
+            return Response({"detail": "date_from and date_to required (YYYY-MM-DD)."}, status=400)
+        date_from = date_cls.fromisoformat(df)
+        date_to = date_cls.fromisoformat(dt)
+        context = custom_range_report_context(project, date_from, date_to)
+        context["text"] = custom_range_report_text(project, date_from, date_to)
+        return Response(context)
+
+    @action(detail=True, methods=["post"], url_path="custom-report-email", permission_classes=[IsAdmin])
+    def email_custom_report(self, request, pk=None):
+        """Email a custom date range report."""
+        df = request.data.get("date_from")
+        dt = request.data.get("date_to")
+        recipient = request.data.get("email", "")
+        custom_text = request.data.get("text", None)
+        if not df or not dt:
+            return Response({"detail": "date_from and date_to required."}, status=400)
+        notify.email_custom_range_report(
+            self.get_object().id, df, dt,
+            recipient_email=recipient if recipient.strip() else None,
+            custom_text=custom_text
+        )
+        return Response({"detail": "Custom range report is on its way."})
+
+    @action(detail=True, methods=["get", "post"], url_path="custom-report-pdf")
+    def custom_report_pdf(self, request, pk=None):
+        """Download custom date range report as PDF."""
+        from datetime import date as date_cls
+        project = self.get_object()
+        df = request.query_params.get("date_from")
+        dt = request.query_params.get("date_to")
+        custom_text = request.data.get("text") if request.method == "POST" else None
+        if not df or not dt:
+            return Response({"detail": "date_from and date_to required."}, status=400)
+        date_from = date_cls.fromisoformat(df)
+        date_to = date_cls.fromisoformat(dt)
+        context = custom_range_report_context(project, date_from, date_to)
+        if custom_text:
+            context["text"] = custom_text
+        html = render_to_string("notifications/emails/custom_range_report.html", context)
+        title = project.name + " Report"
+        
+        # If custom_text is provided, we might want to just render it as a section
+        sections = [
+            ("Overall Stats", f"{context['done_all']}/{context['total']} tasks done ({context['overall_pct']}%)"),
+            ("Period Stats", f"{context['done_range']}/{context['total_range']} tasks done ({context['range_pct']}%)"),
+        ]
+        if custom_text:
+             sections.append(("Report", custom_text))
+        else:
+             sections.extend([
+                 ("Completed", "\\n".join(f"[x] D{t['day_num']} - {t['module']}: {t['title']}" for t in context["completed_tasks"]) or "(none)"),
+                 ("Pending", "\\n".join(f"[ ] D{t['day_num']} - {t['module']}: {t['title']}" for t in context["pending_tasks"]) or "(all done)"),
+             ])
+        try:
+            pdf_bytes = render_report_pdf(html, title=title, sections=sections)
+        except RuntimeError as e:
+            return Response({"detail": str(e)}, status=502)
+        resp2 = HttpResponse(pdf_bytes, content_type="application/pdf")
+        resp2["Content-Disposition"] = f'attachment; filename="{slugify(project.name)}_{df}_to_{dt}_report.pdf"'
+        return resp2
+
+    # ---- MOMs ----
+
+    @action(detail=True, methods=["get", "post"], url_path="moms")
+    def moms(self, request, pk=None):
+        """List or create MOMs for a project."""
+        project = self.get_object()
+        if request.method == "POST":
+            if not request.user.is_admin:
+                return Response(status=403)
+            data = request.data.copy()
+            data["project"] = project.id
+            serializer = MeetingMinutesSerializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            mom = serializer.save(created_by=request.user)
+            return Response(MeetingMinutesSerializer(mom).data, status=201)
+        return Response(MeetingMinutesSerializer(project.moms.all(), many=True).data)
+
+    @action(detail=True, methods=["patch", "delete"], url_path=r"moms/(?P<mom_id>\d+)", permission_classes=[IsAdmin])
+    def mom_detail(self, request, pk=None, mom_id=None):
+        """Update or delete a specific MOM."""
+        mom = MeetingMinutes.objects.filter(project=self.get_object(), pk=mom_id).first()
+        if not mom:
+            return Response(status=404)
+        if request.method == "DELETE":
+            mom.delete()
+            return Response(status=204)
+        serializer = MeetingMinutesSerializer(mom, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"], url_path=r"moms/(?P<mom_id>\d+)/email", permission_classes=[IsAdmin])
+    def email_mom_action(self, request, pk=None, mom_id=None):
+        """Email a specific MOM."""
+        mom = MeetingMinutes.objects.filter(project=self.get_object(), pk=mom_id).first()
+        if not mom:
+            return Response(status=404)
+        recipient = request.data.get("email", "")
+        notify.email_mom(mom.id, recipient_email=recipient if recipient.strip() else None)
+        return Response({"detail": "MOM email is on its way."})
+
+    @action(detail=True, methods=["get"], url_path=r"moms/(?P<mom_id>\d+)/pdf", permission_classes=[IsAdmin])
+    def mom_pdf(self, request, pk=None, mom_id=None):
+        """Download a MOM as PDF."""
+        mom = MeetingMinutes.objects.filter(project=self.get_object(), pk=mom_id).first()
+        if not mom:
+            return Response(status=404)
+        title = f"MOM: {mom.title} - {mom.project.name}"
+        sections = mom_pdf_sections(mom)
+        try:
+            pdf_bytes = render_report_pdf("", title=title, sections=sections)
+        except RuntimeError as e:
+            return Response({"detail": str(e)}, status=502)
+        r = HttpResponse(pdf_bytes, content_type="application/pdf")
+        r["Content-Disposition"] = f'attachment; filename="{slugify(mom.title)}_mom.pdf"'
+        return r
+
+    # ---- Additional project tasks ----
+
+    @action(detail=True, methods=["get", "post"], url_path="extra-tasks")
+    def extra_tasks(self, request, pk=None):
+        """List or create additional (manually-added) tasks on a project."""
+        from django.db.models import Max
+        project = self.get_object()
+        if request.method == "POST":
+            if not request.user.is_admin:
+                return Response(status=403)
+            dev_id = request.data.get("developer")
+            if not dev_id:
+                return Response({"detail": "developer is required."}, status=400)
+            # Use today as the date for additional tasks
+            today = timezone.localdate()
+            # Get max day_num + 1 for this project (or use 0)
+            existing_max = project.tasks.aggregate(m=Max("day_num"))["m"] or 0
+            task = Task.objects.create(
+                project=project,
+                day_num=existing_max + 1,
+                date=today,
+                week=project.tasks.filter(date=today).first().week if project.tasks.filter(date=today).exists() else 1,
+                developer_id=dev_id,
+                module=request.data.get("module", "Additional"),
+                title=request.data.get("title", "Untitled task"),
+                description=request.data.get("description", ""),
+                priority=request.data.get("priority", "MEDIUM"),
+                is_additional=True,
+            )
+            return Response(TaskSerializer(task).data, status=201)
+        qs = project.tasks.filter(is_additional=True).select_related("developer")
+        return Response(TaskSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=["patch", "delete"], url_path=r"extra-tasks/(?P<etask_id>\d+)")
+    def extra_task_detail(self, request, pk=None, etask_id=None):
+        """Update or delete an additional project task."""
+        task = Task.objects.filter(project=self.get_object(), pk=etask_id, is_additional=True).first()
+        if not task:
+            return Response(status=404)
+        u = request.user
+        is_assignee = task.developer_id == u.id
+        if not u.is_admin and not is_assignee:
+            return Response(status=403)
+        if request.method == "DELETE":
+            if not u.is_admin:
+                return Response(status=403)
+            task.delete()
+            return Response(status=204)
+        if "status" in request.data:
+            task.status = request.data["status"]
+            if request.data["status"] == "DONE":
+                task.done_at = timezone.now()
+            else:
+                task.done_at = None
+        if "comment" in request.data:
+            task.comment = request.data["comment"]
+        if u.is_admin:
+            for field in ["title", "description", "module", "priority"]:
+                if field in request.data:
+                    setattr(task, field, request.data[field])
+            if "developer" in request.data:
+                task.developer_id = request.data["developer"]
+        task.save()
+        return Response(TaskSerializer(task).data)
 
     @action(detail=True, methods=["get"], permission_classes=[IsAdmin])
     def summary(self, request, pk=None):
@@ -587,7 +881,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
 class TaskViewSet(viewsets.ModelViewSet):
     serializer_class = TaskSerializer
-    http_method_names = ["get", "patch"]
+    http_method_names = ["get", "patch", "delete"]
     pagination_class = OptionalPagination
 
     def get_queryset(self):
@@ -620,8 +914,20 @@ class TaskViewSet(viewsets.ModelViewSet):
             if not u.is_admin and task.developer_id != u.id:
                 return Response(status=403)
             task.comment = request.data["comment"]
+        if u.is_admin:
+            for field in ["title", "description", "module", "priority"]:
+                if field in request.data:
+                    setattr(task, field, request.data[field])
         task.save()
         return Response(TaskSerializer(task).data)
+
+    def destroy(self, request, *args, **kwargs):
+        u = request.user
+        if not u.is_admin:
+            return Response(status=403)
+        task = self.get_object()
+        task.delete()
+        return Response(status=204)
 
 
 @api_view(["GET"])
@@ -739,3 +1045,80 @@ class AdHocTaskViewSet(viewsets.ModelViewSet):
         if att_id:
             task.attachments.filter(id=att_id).delete()
         return Response(status=204)
+
+
+@api_view(["GET", "PATCH"])
+def report_format_template(request, project_id):
+    """GET or PATCH the report format templates for a project."""
+    project = Project.objects.get(pk=project_id)
+    obj, _ = ProjectReportTemplate.objects.get_or_create(project=project)
+    if request.method == "GET":
+        return Response(ReportFormatTemplateSerializer(obj).data)
+    # PATCH
+    for field in ["weekly_format", "daily_format", "custom_format"]:
+        if field in request.data:
+            setattr(obj, field, request.data[field])
+    obj.save()
+    return Response(ReportFormatTemplateSerializer(obj).data)
+
+
+@api_view(["GET", "PATCH"])
+def org_settings(request):
+    """GET or PATCH the organization-wide settings (singleton)."""
+    if not request.user.is_admin:
+        return Response(status=403)
+    obj = OrganizationSettings.get()
+    if request.method == "GET":
+        return Response(OrganizationSettingsSerializer(obj).data)
+    for field in ["company_name", "company_tagline", "logo_url", "pdf_accent_color",
+                  "pdf_header_text", "pdf_footer_text", "email_signature"]:
+        if field in request.data:
+            setattr(obj, field, request.data[field])
+    obj.save()
+    return Response(OrganizationSettingsSerializer(obj).data)
+
+
+from django.core import signing
+from rest_framework.decorators import permission_classes
+from rest_framework.permissions import AllowAny
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def shared_report_view(request, token):
+    """Publicly accessible view for shared reports."""
+    try:
+        data = signing.loads(token, max_age=86400*30) # 30 days
+    except signing.SignatureExpired:
+        return HttpResponse("Link expired.", status=403)
+    except signing.BadSignature:
+        return HttpResponse("Invalid link.", status=403)
+        
+    project = Project.objects.get(id=data["p"])
+    report_type = data["t"]
+    
+    if report_type == "weekly":
+        week = data["w"]
+        context = weekly_report_context(project, week)
+        template = "notifications/emails/weekly_report.html"
+    elif report_type == "daily":
+        from datetime import date as date_cls
+        report_date = date_cls.fromisoformat(data["d"])
+        context = daily_report_context(project, report_date)
+        template = "notifications/emails/daily_report.html"
+    elif report_type == "custom":
+        from datetime import date as date_cls
+        date_from = date_cls.fromisoformat(data["df"])
+        date_to = date_cls.fromisoformat(data["dt"])
+        context = custom_range_report_context(project, date_from, date_to)
+        template = "notifications/emails/custom_range_report.html"
+    else:
+        return HttpResponse("Unknown report type.", status=400)
+        
+    try:
+        from .models import OrganizationSettings
+        context["org"] = OrganizationSettings.get()
+    except Exception:
+        pass
+        
+    html = render_to_string(template, context)
+    return HttpResponse(html)

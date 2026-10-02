@@ -8,4 +8,10 @@ router.register("projects", views.ProjectViewSet, basename="projects")
 router.register("tasks", views.TaskViewSet, basename="tasks")
 router.register("adhoc-tasks", views.AdHocTaskViewSet, basename="adhoc-tasks")
 
-urlpatterns = [path("dashboard/", views.dashboard)] + router.urls
+urlpatterns = [
+    path("dashboard/", views.dashboard),
+    path("projects/<int:project_id>/report-format/", views.report_format_template),
+    path("org-settings/", views.org_settings),
+    path("shared/report/<str:token>/", views.shared_report_view),
+] + router.urls
+

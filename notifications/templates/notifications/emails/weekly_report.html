@@ -1,119 +1,50 @@
 {% extends "notifications/emails/base.html" %}
-
 {% block title %}Weekly Report — {{ project_name }} — W{{ week }}{% endblock %}
-{% block header_title %}Weekly Report 📊{% endblock %}
-{% block header_subtitle %}<p class="subtitle">{{ project_name }}{% if project_ref %} ({{ project_ref }}){% endif %} &middot; W{{ week }}</p>{% endblock %}
+{% block header_title %}Weekly Report — Week {{ week }}{% endblock %}
+{% block header_subtitle %}<p class="subtitle">{{ project_name }} &middot; Week {{ week }}</p>{% endblock %}
 
 {% block content %}
-<p class="greeting">Weekly Project Report</p>
-
-<div class="info-card">
-  <p>PROJECT</p>
-  <p class="value">{{ project_name }}{% if project_ref %} ({{ project_ref }}){% endif %}</p>
-</div>
-
-{% if client_name %}
-<div class="info-card">
-  <p>CLIENT</p>
-  <p class="value">{{ client_name }}</p>
-</div>
-{% endif %}
-
-<div class="info-card">
-  <p>WEEK</p>
-  <p class="value">W{{ week }} ({{ week_start }} – {{ week_end }})</p>
-</div>
-
-<div class="info-card">
-  <p>GENERATED</p>
-  <p class="value">{{ generated_date }}</p>
-</div>
-
-<!-- Overall Stats -->
-<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 24px 0;">
+<table class="stats-table">
   <tr>
-    <td width="48%" style="padding-right: 2%;">
-      <div class="stat-box">
-        <div class="stat-number">{{ overall_pct }}%</div>
-        <div class="stat-label">Overall Complete</div>
-        <div style="color: #94a3b8; font-size: 12px; margin-top: 4px;">{{ done_all }}/{{ total }} tasks</div>
-      </div>
+    <td class="stat-card">
+      <div class="stat-val">{{ done_week }}/{{ total_week }}</div>
+      <div class="stat-label">Tasks This Week</div>
     </td>
-    <td width="48%" style="padding-left: 2%;">
-      <div class="stat-box">
-        <div class="stat-number">{{ week_pct }}%</div>
-        <div class="stat-label">This Week</div>
-        <div style="color: #94a3b8; font-size: 12px; margin-top: 4px;">{{ done_week }}/{{ total_week }} tasks</div>
-      </div>
+    <td class="stat-card">
+      <div class="stat-val">{{ week_pct }}%</div>
+      <div class="stat-label">Week Progress</div>
     </td>
   </tr>
 </table>
 
-<!-- By Developer -->
-<p class="section-heading">By Developer</p>
-{% for dev in devs %}
-<div style="margin-bottom: 8px;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-    <tr>
-      <td>
-        <span class="dev-tag">{{ dev.name }}</span>
-      </td>
-      <td align="right">
-        <span style="color: #e2e8f0; font-size: 14px; font-weight: 600;">{{ dev.done }}/{{ dev.total }}</span>
-        <span style="color: #64748b; font-size: 13px;"> done</span>
-      </td>
-    </tr>
-  </table>
-  <!-- Progress bar -->
-  <div style="background-color: #0f172a; border-radius: 6px; height: 6px; margin-top: 6px; overflow: hidden;">
-    <div style="background: linear-gradient(90deg, #6366f1, #8b5cf6); height: 6px; border-radius: 6px; width: {{ dev.pct }}%;"></div>
-  </div>
-</div>
-{% endfor %}
-
-<hr class="divider">
-
-<!-- Completed -->
-<p class="section-heading">Completed This Week ✅</p>
-{% if completed_tasks %}
-{% for task in completed_tasks %}
-<div class="task-item" style="margin-bottom: 8px; background-color: #0f172a; border-radius: 10px; padding: 12px 16px; border: 1px solid rgba(34,197,94,0.2);">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-    <tr>
-      <td width="60" valign="top">
-        <span style="display: inline-block; background: rgba(34,197,94,0.15); color: #4ade80; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px;">D{{ task.day_num }}</span>
-      </td>
-      <td valign="top">
-        <span style="color: #94a3b8; font-size: 12px;">{{ task.dev_name }}</span><br>
-        <span style="color: #e2e8f0; font-size: 14px;">{{ task.module }}: {{ task.title }}</span>
-      </td>
-    </tr>
-  </table>
-</div>
-{% endfor %}
+{% if custom_text %}
+<div class="section-title">Report Summary</div>
+<div class="text-body" style="white-space: pre-wrap;">{{ custom_text }}</div>
 {% else %}
-<p style="color: #64748b; font-style: italic;">(none yet)</p>
+
+{% if completed_tasks %}
+<div class="section-title">Completed This Week ✅</div>
+{% for task in completed_tasks %}
+<div class="item-card">
+  <span class="badge badge-success">D{{ task.day_num }}</span>
+  <span style="font-size: 13px; font-weight: 600; margin-left: 8px;">{{ task.module }}</span>
+  <div style="margin-top: 8px; font-size: 14px; color: #1e293b;">{{ task.title }}</div>
+  <div style="margin-top: 4px; font-size: 12px; color: #64748b;">{{ task.dev_name }}</div>
+</div>
+{% endfor %}
 {% endif %}
 
-<!-- Pending -->
-<p class="section-heading">Pending / Carried Forward ⏳</p>
 {% if pending_tasks %}
+<div class="section-title">Remaining / Pending ⏳</div>
 {% for task in pending_tasks %}
-<div class="task-item" style="margin-bottom: 8px; background-color: #0f172a; border-radius: 10px; padding: 12px 16px; border: 1px solid rgba(251,191,36,0.2);">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-    <tr>
-      <td width="60" valign="top">
-        <span style="display: inline-block; background: rgba(251,191,36,0.15); color: #fbbf24; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px;">D{{ task.day_num }}</span>
-      </td>
-      <td valign="top">
-        <span style="color: #94a3b8; font-size: 12px;">{{ task.dev_name }}</span><br>
-        <span style="color: #e2e8f0; font-size: 14px;">{{ task.module }}: {{ task.title }}</span>
-      </td>
-    </tr>
-  </table>
+<div class="item-card">
+  <span class="badge badge-warning">D{{ task.day_num }}</span>
+  <span style="font-size: 13px; font-weight: 600; margin-left: 8px;">{{ task.module }}</span>
+  <div style="margin-top: 8px; font-size: 14px; color: #1e293b;">{{ task.title }}</div>
+  <div style="margin-top: 4px; font-size: 12px; color: #64748b;">{{ task.dev_name }}</div>
 </div>
 {% endfor %}
-{% else %}
-<p style="color: #4ade80; font-style: italic;">Nothing pending — week fully complete! 🎉</p>
+{% endif %}
+
 {% endif %}
 {% endblock %}

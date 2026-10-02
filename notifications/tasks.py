@@ -119,14 +119,33 @@ def send_weekly_reports():
 
 
 @background_task
-def email_weekly_report(project_id, week):
+def email_weekly_report(project_id, week, recipient_email=None, custom_text=None):
     from core.models import Project
     from core.services import weekly_report_text, weekly_report_context
     p = Project.objects.get(id=project_id)
-    text_body = weekly_report_text(p, week)
+    text_body = custom_text if custom_text else weekly_report_text(p, week)
     context = weekly_report_context(p, week)
+    if custom_text:
+        context["custom_text"] = custom_text
     html_message = render_to_string("notifications/emails/weekly_report.html", context)
-    email(settings.ADMIN_REPORT_EMAIL, f"Weekly Report — {p.name} — W{week}", text_body, html_message=html_message)
+    to = [e.strip() for e in recipient_email.split(",")] if recipient_email else [settings.ADMIN_REPORT_EMAIL]
+    email(to, f"Weekly Report — {p.name} — W{week}", text_body, html_message=html_message)
+
+
+@background_task
+def email_daily_report(project_id, date_str, recipient_email=None, custom_text=None):
+    """Email a daily report with optional custom text and recipients."""
+    from datetime import date as date_cls
+    from core.models import Project
+    from core.services import daily_report_text, daily_report_context
+    p = Project.objects.get(id=project_id)
+    report_date = date_cls.fromisoformat(date_str)
+    text_body = custom_text if custom_text else daily_report_text(p, report_date)
+    context = daily_report_context(p, report_date)
+    context["text"] = text_body
+    html_message = render_to_string("notifications/emails/daily_report.html", context)
+    to = [e.strip() for e in recipient_email.split(",")] if recipient_email else [settings.ADMIN_REPORT_EMAIL]
+    email(to, f"Daily Report — {p.name} — {report_date.strftime('%d %b %Y')}", text_body, html_message=html_message)
 
 
 @background_task
@@ -213,3 +232,53 @@ def send_adhoc_task_assigned(task_id):
             "due_date": t.due_date.strftime("%d %b %Y"),
         })
         email(u.email, f"New task assigned: {t.title}", body, html_message=html_message)
+
+
+@background_task
+def email_custom_range_report(project_id, date_from_str, date_to_str, recipient_email=None, custom_text=None):
+    """Email a custom date-range report for a project."""
+    from datetime import date as date_cls
+    from core.models import Project
+    from core.services import custom_range_report_text, custom_range_report_context
+    p = Project.objects.get(id=project_id)
+    date_from = date_cls.fromisoformat(date_from_str)
+    date_to = date_cls.fromisoformat(date_to_str)
+    text_body = custom_text if custom_text else custom_range_report_text(p, date_from, date_to)
+    context = custom_range_report_context(p, date_from, date_to)
+    html_message = render_to_string("notifications/emails/custom_range_report.html", context)
+    to = [e.strip() for e in recipient_email.split(',')] if recipient_email else [settings.ADMIN_REPORT_EMAIL]
+    email(
+        to,
+        f"Task Report — {p.name} — {date_from.strftime('%d %b')} to {date_to.strftime('%d %b %Y')}",
+        text_body,
+        html_message=html_message
+    )
+
+
+@background_task
+def email_mom(mom_id, recipient_email=None):
+    """Email a Minutes of Meeting document."""
+    from core.models import MeetingMinutes
+    mom = MeetingMinutes.objects.select_related("project").get(id=mom_id)
+    ctx = {
+        "project_name": mom.project.name,
+        "mom_title": mom.title,
+        "meeting_date": mom.meeting_date.strftime("%d %b %Y"),
+        "attendees": mom.attendees,
+        "agenda": mom.agenda,
+        "discussion": mom.discussion,
+        "decisions": mom.decisions,
+        "action_items": mom.action_items,
+        "next_meeting_date": mom.next_meeting_date.strftime("%d %b %Y") if mom.next_meeting_date else None,
+    }
+    html_message = render_to_string("notifications/emails/mom.html", ctx)
+    body = (
+        f"MOM: {mom.title}\n"
+        f"Project: {mom.project.name}\n"
+        f"Date: {mom.meeting_date.strftime('%d %b %Y')}\n\n"
+        f"Attendees: {mom.attendees}\n\n"
+        f"--- Action Items ---\n{mom.action_items}\n\n"
+        f"— JMS Delivery Hub"
+    )
+    to = [e.strip() for e in recipient_email.split(',')] if recipient_email else [settings.ADMIN_REPORT_EMAIL]
+    email(to, f"MOM: {mom.title} — {mom.project.name}", body, html_message=html_message)
