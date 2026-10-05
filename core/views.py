@@ -11,12 +11,13 @@ from accounts.permissions import IsAdmin
 from ai import planner
 from .models import (Client, Project, Task, Update, ProjectDocument,
                      AdHocTask, AdHocTaskAttachment, ProjectArchitecture,
-                     MeetingMinutes, ProjectReportTemplate, OrganizationSettings)
+                     MeetingMinutes, ProjectReportTemplate, OrganizationSettings, ProjectMilestone)
 from .serializers import (ClientSerializer, ProjectSerializer, TaskSerializer,
                           UpdateSerializer, ProjectDocumentSerializer,
                           AdHocTaskSerializer, AdHocTaskAttachmentSerializer,
                           ProjectArchitectureSerializer, MeetingMinutesSerializer,
-                          ReportFormatTemplateSerializer, OrganizationSettingsSerializer)
+                          ReportFormatTemplateSerializer, OrganizationSettingsSerializer,
+                          ProjectMilestoneSerializer)
 from .services import (build_plan_rows, weekly_report_text, weekly_report_context,
                        summary_stats_text, build_gantt_pdf_context,
                        daily_report_context, daily_report_text, render_report_pdf,
@@ -33,6 +34,17 @@ class ClientViewSet(viewsets.ModelViewSet):
     queryset = Client.objects.all().order_by("name")
     serializer_class = ClientSerializer
     permission_classes = [IsAdmin]
+
+
+class ProjectMilestoneViewSet(viewsets.ModelViewSet):
+    serializer_class = ProjectMilestoneSerializer
+
+    def get_queryset(self):
+        qs = ProjectMilestone.objects.all()
+        project_id = self.request.query_params.get("project_id")
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        return qs
 
 
 class ProjectViewSet(viewsets.ModelViewSet):

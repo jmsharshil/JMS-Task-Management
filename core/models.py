@@ -293,3 +293,46 @@ class OrganizationSettings(models.Model):
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
 
+
+class ProjectMilestone(models.Model):
+    """
+    Tracks clear, specific milestones for a project.
+    Includes:
+    - exact deliverable / scope remaining
+    - current status and work completed to date
+    - stakeholder / dependency, if any
+    - next milestone and committed date
+    - final completion / go-live date
+    - blocker, owner and recovery action where a milestone is at risk.
+    """
+    class Status(models.TextChoices):
+        ON_TRACK = "ON_TRACK", "On Track"
+        AT_RISK = "AT_RISK", "At Risk"
+        DELAYED = "DELAYED", "Delayed"
+        COMPLETED = "COMPLETED", "Completed"
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="milestones")
+    title = models.CharField(max_length=300, help_text="Exact deliverable / scope remaining")
+    status = models.CharField(max_length=15, choices=Status.choices, default=Status.ON_TRACK)
+    work_completed = models.TextField(blank=True, help_text="Work completed to date")
+    
+    stakeholder_dependency = models.TextField(blank=True, help_text="Stakeholder / dependency, if any")
+    
+    next_milestone_desc = models.CharField(max_length=300, blank=True, help_text="Next milestone description")
+    committed_date = models.DateField(null=True, blank=True, help_text="Next milestone committed date")
+    
+    final_completion_date = models.DateField(null=True, blank=True, help_text="Final completion / go-live date")
+    
+    blocker = models.TextField(blank=True, help_text="Blocker if at risk")
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="owned_milestones")
+    recovery_action = models.TextField(blank=True, help_text="Recovery action if at risk")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["final_completion_date", "created_at"]
+
+    def __str__(self):
+        return f"{self.project.name} - {self.title}"
+

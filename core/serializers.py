@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Client, Project, Task, Update, ProjectDocument, AdHocTask, AdHocTaskAttachment, ProjectArchitecture, MeetingMinutes, ProjectReportTemplate, OrganizationSettings
+from .models import Client, Project, Task, Update, ProjectDocument, AdHocTask, AdHocTaskAttachment, ProjectArchitecture, MeetingMinutes, ProjectReportTemplate, OrganizationSettings, ProjectMilestone
 
 AZURE_BLOB_PREFIX = "https://hrmsknowcraftstorage.blob.core.windows.net"
 
@@ -71,6 +71,21 @@ class ProjectArchitectureSerializer(serializers.ModelSerializer):
         return str(obj.content)[:120]
 
 
+class ProjectMilestoneSerializer(serializers.ModelSerializer):
+    owner_name = serializers.CharField(source="owner.get_full_name", read_only=True)
+
+    class Meta:
+        model = ProjectMilestone
+        fields = [
+            "id", "project", "title", "status", "work_completed",
+            "stakeholder_dependency", "next_milestone_desc", "committed_date",
+            "final_completion_date", "blocker", "owner", "owner_name", "recovery_action",
+            "created_at", "updated_at"
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+
+
+
 class ProjectSerializer(serializers.ModelSerializer):
     client_name = serializers.CharField(source="client.name", read_only=True)
     team_detail = UserSerializer(source="team", many=True, read_only=True)
@@ -79,12 +94,13 @@ class ProjectSerializer(serializers.ModelSerializer):
     latest_update = serializers.SerializerMethodField()
     sow_pdf = serializers.SerializerMethodField()
     architecture = ProjectArchitectureSerializer(read_only=True)
+    milestones = ProjectMilestoneSerializer(many=True, read_only=True)
 
     class Meta:
         model = Project
         fields = ["id", "name", "client", "client_name", "ref", "start_date", "weeks",
                   "team", "team_leaders", "team_detail", "team_leaders_detail", "brief_summary", "brief_modules", "stats",
-                  "latest_update", "created_at", "sow_pdf", "architecture"]
+                  "latest_update", "created_at", "sow_pdf", "architecture", "milestones"]
 
     def get_sow_pdf(self, obj):
         return _resolve_file_url(obj.sow_pdf)
