@@ -430,53 +430,91 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     # ---- Reports / summary / gantt / updates --------------------------------
 
-    @action(detail=True, methods=["get"], url_path="share-link")
+    @action(detail=True, methods=["get", "post"], url_path="share-link")
     def share_link(self, request, pk=None):
         from django.core.files.base import ContentFile
         from django.utils.text import slugify
         from datetime import date as date_cls
+        import html as html_lib
+
         project = self.get_object()
-        report_type = request.query_params.get("type", "weekly")
+        report_type = request.query_params.get("type")
+        if not report_type and isinstance(request.data, dict):
+            report_type = request.data.get("type")
+        if not report_type:
+            report_type = "weekly"
         
         context = None
         html_template = ""
         filename = ""
         title = ""
+        html = None
         
         if report_type == "weekly":
-            week = int(request.query_params.get("week", 1))
+            week = int(request.query_params.get("week") or (request.data.get("week") if isinstance(request.data, dict) else 1))
             context = weekly_report_context(project, week)
             html_template = "notifications/emails/weekly_report.html"
             filename = f"{slugify(project.name)}_W{week}_report.pdf"
             title = f"Weekly Report W{week} (Shared)"
         elif report_type == "daily":
-            d = request.query_params.get("date")
+            d = request.query_params.get("date") or (request.data.get("date") if isinstance(request.data, dict) else None)
             report_date = date_cls.fromisoformat(d)
             context = daily_report_context(project, report_date)
             html_template = "notifications/emails/daily_report.html"
             filename = f"{slugify(project.name)}_{d}_daily_report.pdf"
             title = f"Daily Report {d} (Shared)"
         elif report_type == "custom":
-            df = request.query_params.get("date_from")
-            dt = request.query_params.get("date_to")
+            df = request.query_params.get("date_from") or (request.data.get("date_from") if isinstance(request.data, dict) else None)
+            dt = request.query_params.get("date_to") or (request.data.get("date_to") if isinstance(request.data, dict) else None)
             date_from = date_cls.fromisoformat(df)
             date_to = date_cls.fromisoformat(dt)
             context = custom_range_report_context(project, date_from, date_to)
             html_template = "notifications/emails/custom_range_report.html"
             filename = f"{slugify(project.name)}_{df}_to_{dt}_report.pdf"
             title = f"Custom Report {df} - {dt} (Shared)"
+        elif report_type == "milestones":
+            filename = f"{slugify(project.name)}_milestones.pdf"
+            title = f"{project.name} — Milestone Report (Shared)"
+            if isinstance(request.data, dict) and request.data.get("html"):
+                html = request.data.get("html")
+            else:
+                milestones = project.milestones.all()
+                rows_html = ""
+                for i, m in enumerate(milestones):
+                    bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
+                    cell = f"padding:8px 10px;border:1px solid #e2e8f0;vertical-align:top;word-break:break-word;white-space:normal;font-size:10.5px;background:{bg};color:#334155"
+                    date_cell = f"padding:8px 10px;border:1px solid #e2e8f0;vertical-align:top;font-family:monospace;font-size:10.5px;white-space:nowrap;background:{bg};color:#334155"
+                    status_lbl = html_lib.escape(str(m.status or "On Track"))
+                    p_name = html_lib.escape(project.name)
+                    t_val = html_lib.escape(m.title or "")
+                    w_val = html_lib.escape(m.work_completed or "")
+                    o_val = html_lib.escape(m.owner or "-")
+                    dep_val = html_lib.escape(m.stakeholder_dependency or "-")
+                    nxt_val = html_lib.escape(m.next_milestone_desc or "-")
+                    c_date = html_lib.escape(str(m.committed_date or "-"))
+                    f_date = html_lib.escape(str(m.final_completion_date or "-"))
+                    blk = html_lib.escape(m.blocker or "")
+                    act = html_lib.escape(m.recovery_action or "")
+                    blk_html = f'<b style="color:#dc2626">Blocker:</b> {blk}<br>' if blk else ''
+                    act_html = f'<b style="color:#4f46e5">Action:</b> {act}' if act else ''
+                    block_act = (blk_html + act_html) if (blk or act) else '-'
+                    work_html = f'<br><span style="font-size:9.5px;color:#64748b">{w_val}</span>' if w_val else ''
+                    rows_html += f'<tr><td style="{cell}">{p_name}</td><td style="{cell};font-weight:600;color:#0f172a">{t_val}{work_html}</td><td style="{cell}"><span style="display:inline-block;padding:3px 6px;border-radius:3px;font-size:9.5px;font-weight:700;text-transform:uppercase;white-space:nowrap;background:#dcfce7;color:#166534;border:1px solid #bbf7d0">{status_lbl}</span></td><td style="{cell}">{o_val}</td><td style="{cell}">{dep_val}</td><td style="{cell}">{nxt_val}</td><td style="{date_cell}">{c_date}</td><td style="{date_cell}">{f_date}</td><td style="{cell}">{block_act}</td></tr>'
+                th = "padding:8px 10px;border:1px solid #cbd5e1;font-weight:700;background:#f1f5f9;color:#1e293b;font-size:10.5px;text-align:left;vertical-align:bottom;word-break:break-word"
+                html = f'<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page {{ size: landscape; margin: 10mm; }} body {{ font-family: Arial, Helvetica, sans-serif; font-size: 11px; margin: 10px; color: #1e293b; }} h2 {{ font-size: 16px; margin-bottom: 4px; color: #0f172a; }} p {{ color: #64748b; font-size: 11px; margin: 0 0 14px; }} table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}</style></head><body><h2>{html_lib.escape(project.name)} — Milestone Status Report</h2><p>Milestone Status Summary</p><table><colgroup><col style="width:10%"><col style="width:18%"><col style="width:8%"><col style="width:9%"><col style="width:10%"><col style="width:11%"><col style="width:10%"><col style="width:10%"><col style="width:14%"></colgroup><thead><tr><th style="{th}">Project</th><th style="{th}">Open Item</th><th style="{th}">Status</th><th style="{th}">Owner</th><th style="{th}">Dependency</th><th style="{th}">Next Milestone</th><th style="{th}">Committed Date</th><th style="{th}">Final Closure Date</th><th style="{th}">Risk / Blocker &amp; Action</th></tr></thead><tbody>{rows_html}</tbody></table></body></html>'
         else:
             return Response({"detail": "Invalid type"}, status=400)
             
-        try:
-            from .models import OrganizationSettings
-            context["org"] = OrganizationSettings.get()
-        except Exception:
-            pass
+        if not html and html_template:
+            try:
+                from .models import OrganizationSettings
+                context["org"] = OrganizationSettings.get()
+            except Exception:
+                pass
+            html = render_to_string(html_template, context)
             
-        html = render_to_string(html_template, context)
         try:
-            pdf_bytes = render_report_pdf(html)
+            pdf_bytes = render_report_pdf(html, title=f"{project.name} — Report")
         except RuntimeError as e:
             return Response({"detail": str(e)}, status=502)
             
@@ -1134,3 +1172,21 @@ def shared_report_view(request, token):
         
     html = render_to_string(template, context)
     return HttpResponse(html)
+
+
+@api_view(["POST"])
+def milestone_report_pdf(request):
+    """Accept an HTML string and return a PDF file download for milestone reports."""
+    html = request.data.get("html", "")
+    project_name = request.data.get("project_name", "Milestones")
+    if not html:
+        return Response({"detail": "html is required."}, status=400)
+    try:
+        pdf_bytes = render_report_pdf(html, title=f"{project_name} — Milestone Report")
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        safe_name = project_name.replace(" ", "_")
+        response["Content-Disposition"] = f'attachment; filename="{safe_name}_milestones.pdf"'
+        return response
+    except Exception as e:
+        logger.error("Milestone PDF error: %s", e)
+        return Response({"detail": f"PDF generation failed: {e}"}, status=500)

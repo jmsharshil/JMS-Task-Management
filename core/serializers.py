@@ -72,14 +72,12 @@ class ProjectArchitectureSerializer(serializers.ModelSerializer):
 
 
 class ProjectMilestoneSerializer(serializers.ModelSerializer):
-    owner_name = serializers.CharField(source="owner.get_full_name", read_only=True)
-
     class Meta:
         model = ProjectMilestone
         fields = [
             "id", "project", "title", "status", "work_completed",
             "stakeholder_dependency", "next_milestone_desc", "committed_date",
-            "final_completion_date", "blocker", "owner", "owner_name", "recovery_action",
+            "final_completion_date", "blocker", "owner", "recovery_action",
             "created_at", "updated_at"
         ]
         read_only_fields = ["created_at", "updated_at"]

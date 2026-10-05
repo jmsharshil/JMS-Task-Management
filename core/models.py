@@ -324,7 +324,7 @@ class ProjectMilestone(models.Model):
     final_completion_date = models.DateField(null=True, blank=True, help_text="Final completion / go-live date")
     
     blocker = models.TextField(blank=True, help_text="Blocker if at risk")
-    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="owned_milestones")
+    owner = models.CharField(max_length=200, null=True, blank=True, help_text="Owner name (client-side contact or responsible party)")
     recovery_action = models.TextField(blank=True, help_text="Recovery action if at risk")
     
     created_at = models.DateTimeField(auto_now_add=True)

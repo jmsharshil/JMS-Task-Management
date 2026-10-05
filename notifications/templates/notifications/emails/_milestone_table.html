@@ -1,0 +1,71 @@
+{% comment %}
+  Reusable milestone table partial.
+  Expects: milestones (list of dicts), project_name
+  Dict keys: title, status, work_completed, owner, stakeholder_dependency,
+             next_milestone_desc, committed_date, final_completion_date,
+             blocker, recovery_action
+{% endcomment %}
+{% if milestones %}
+<div style="margin-top:28px;">
+  <div style="font-size:15px;font-weight:700;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:8px;margin-bottom:14px;">
+    Project Milestone Tracker
+  </div>
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:left;table-layout:fixed;">
+      <colgroup>
+        <col style="width:12%"><col style="width:17%"><col style="width:9%">
+        <col style="width:10%"><col style="width:11%"><col style="width:11%">
+        <col style="width:9%"><col style="width:9%"><col style="width:12%">
+      </colgroup>
+      <thead>
+        <tr style="background:#f1f5f9;color:#334155;">
+          <th style="padding:9px 10px;border:1px solid #cbd5e1;font-weight:700;word-break:break-word;">Project</th>
+          <th style="padding:9px 10px;border:1px solid #cbd5e1;font-weight:700;word-break:break-word;">Open Item / Deliverable</th>
+          <th style="padding:9px 10px;border:1px solid #cbd5e1;font-weight:700;word-break:break-word;">Status</th>
+          <th style="padding:9px 10px;border:1px solid #cbd5e1;font-weight:700;word-break:break-word;">Owner</th>
+          <th style="padding:9px 10px;border:1px solid #cbd5e1;font-weight:700;word-break:break-word;">Stakeholder / Dependency</th>
+          <th style="padding:9px 10px;border:1px solid #cbd5e1;font-weight:700;word-break:break-word;">Next Milestone</th>
+          <th style="padding:9px 10px;border:1px solid #cbd5e1;font-weight:700;word-break:break-word;">Committed Date</th>
+          <th style="padding:9px 10px;border:1px solid #cbd5e1;font-weight:700;word-break:break-word;">Final Closure Date</th>
+          <th style="padding:9px 10px;border:1px solid #cbd5e1;font-weight:700;word-break:break-word;">Risk / Blocker &amp; Recovery Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in milestones %}
+        <tr style="background:{% cycle '#ffffff' '#f8fafc' %};">
+          <td style="padding:9px 10px;border:1px solid #e2e8f0;color:#475569;word-break:break-word;vertical-align:top;">{{ project_name }}</td>
+          <td style="padding:9px 10px;border:1px solid #e2e8f0;color:#0f172a;font-weight:600;word-break:break-word;vertical-align:top;">
+            {{ m.title }}
+            {% if m.work_completed %}<div style="font-size:11px;color:#64748b;margin-top:3px;font-weight:400;">{{ m.work_completed }}</div>{% endif %}
+          </td>
+          <td style="padding:9px 10px;border:1px solid #e2e8f0;vertical-align:top;">
+            <span style="display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;text-transform:uppercase;white-space:nowrap;
+              {% if m.status == 'COMPLETED' %}background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe;
+              {% elif m.status == 'ON_TRACK' %}background:#dcfce7;color:#166534;border:1px solid #bbf7d0;
+              {% elif m.status == 'AT_RISK' %}background:#fee2e2;color:#991b1b;border:1px solid #fecaca;
+              {% elif m.status == 'DELAYED' %}background:#fef9c3;color:#854d0e;border:1px solid #fef08a;
+              {% else %}background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;{% endif %}">
+              {% if m.status == 'COMPLETED' %}Completed
+              {% elif m.status == 'ON_TRACK' %}On Track
+              {% elif m.status == 'AT_RISK' %}At Risk
+              {% elif m.status == 'DELAYED' %}Delayed
+              {% else %}{{ m.status }}{% endif %}
+            </span>
+          </td>
+          <td style="padding:9px 10px;border:1px solid #e2e8f0;color:#475569;word-break:break-word;vertical-align:top;">{{ m.owner|default:"-" }}</td>
+          <td style="padding:9px 10px;border:1px solid #e2e8f0;color:#475569;word-break:break-word;vertical-align:top;">{{ m.stakeholder_dependency|default:"-" }}</td>
+          <td style="padding:9px 10px;border:1px solid #e2e8f0;color:#475569;word-break:break-word;vertical-align:top;">{{ m.next_milestone_desc|default:"-" }}</td>
+          <td style="padding:9px 10px;border:1px solid #e2e8f0;color:#475569;font-family:monospace;vertical-align:top;">{{ m.committed_date|default:"-" }}</td>
+          <td style="padding:9px 10px;border:1px solid #e2e8f0;color:#475569;font-family:monospace;vertical-align:top;">{{ m.final_completion_date|default:"-" }}</td>
+          <td style="padding:9px 10px;border:1px solid #e2e8f0;color:#475569;word-break:break-word;vertical-align:top;">
+            {% if m.blocker %}<div><b style="color:#dc2626;">Blocker:</b> {{ m.blocker }}</div>{% endif %}
+            {% if m.recovery_action %}<div style="margin-top:3px;"><b style="color:#4f46e5;">Action:</b> {{ m.recovery_action }}</div>{% endif %}
+            {% if not m.blocker and not m.recovery_action %}-{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
