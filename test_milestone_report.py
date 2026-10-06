@@ -68,6 +68,13 @@ print("HTML built successfully. Length:", len(html))
 print("Contains table:", "table" in html.lower())
 print("Contains status badges:", "Completed" in html and "On Track" in html)
 
+from core.services import build_milestone_html, build_all_projects_milestone_html, render_report_pdf
+
+# Test All Projects HTML builder
+all_html = build_all_projects_milestone_html()
+print("All projects HTML built successfully. Length:", len(all_html))
+print("Contains All Open Projects header:", "All Open Projects" in all_html)
+
 # Test PDF
 try:
     pdf_bytes = render_report_pdf(html, title=f"{project.name} — Milestone Report")

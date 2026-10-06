@@ -157,6 +157,166 @@ def build_milestone_html(project):
     return html_content
 
 
+def build_all_projects_milestone_html(projects=None, date_from=None, date_to=None, date_field="committed_date", status_filter=None, title_override="All Open Projects — Milestone Status Report"):
+    """Build landscape HTML report containing milestones for all open projects.
+    Supports date range filtering and status filtering.
+    """
+    import html as html_lib
+    from .models import Project
+
+    if projects is None:
+        projects = Project.objects.prefetch_related('milestones').all().order_by("name")
+
+    status_config = {
+        "COMPLETED": {"bg": "#dbeafe", "color": "#1e40af", "border": "#bfdbfe", "label": "Completed"},
+        "ON_TRACK": {"bg": "#dcfce7", "color": "#166534", "border": "#bbf7d0", "label": "On Track"},
+        "AT_RISK": {"bg": "#fee2e2", "color": "#991b1b", "border": "#fecaca", "label": "At Risk"},
+        "DELAYED": {"bg": "#fef9c3", "color": "#854d0e", "border": "#fef08a", "label": "Delayed"},
+    }
+
+    milestones_data = []
+    for p in projects:
+        for m in p.milestones.all():
+            if date_from and date_to:
+                d_val = getattr(m, date_field, None)
+                if not d_val:
+                    continue
+                d_str = str(d_val)
+                if not (str(date_from) <= d_str <= str(date_to)):
+                    continue
+
+            if status_filter and m.status != status_filter:
+                continue
+
+            milestones_data.append({
+                "project_name": p.name,
+                "title": m.title,
+                "status": m.status,
+                "work_completed": m.work_completed or "",
+                "stakeholder_dependency": m.stakeholder_dependency or "",
+                "next_milestone_desc": m.next_milestone_desc or "",
+                "committed_date": str(m.committed_date) if m.committed_date else "",
+                "final_completion_date": str(m.final_completion_date) if m.final_completion_date else "",
+                "blocker": m.blocker or "",
+                "owner": m.owner or "",
+                "recovery_action": m.recovery_action or "",
+            })
+
+    milestones_data.sort(key=lambda x: _MS_SORT.index(x["status"]) if x["status"] in _MS_SORT else 99)
+
+    rows_html = ""
+    for i, m in enumerate(milestones_data):
+        row_bg = "#f8fafc" if i % 2 else "#ffffff"
+        cell_style = (
+            f"padding:8px 10px;border:1px solid #e2e8f0;vertical-align:top;"
+            f"word-break:break-word;white-space:normal;font-size:10.5px;"
+            f"background:{row_bg};color:#334155"
+        )
+        date_style = (
+            f"padding:8px 10px;border:1px solid #e2e8f0;vertical-align:top;"
+            f"font-family:monospace;font-size:10.5px;white-space:nowrap;"
+            f"background:{row_bg};color:#334155"
+        )
+        st = status_config.get(
+            m["status"],
+            {"bg": "#f1f5f9", "color": "#334155", "border": "#cbd5e1", "label": m.get("status", "—")},
+        )
+        status_lbl = html_lib.escape(st["label"])
+        status_html = (
+            f'<span style="display:inline-block;padding:3px 6px;border-radius:3px;'
+            f'font-size:9.5px;font-weight:700;text-transform:uppercase;white-space:nowrap;'
+            f'background:{st["bg"]};color:{st["color"]};border:1px solid {st["border"]}">'
+            f"{status_lbl}</span>"
+        )
+        p_name = html_lib.escape(m["project_name"])
+        title_val = html_lib.escape(m["title"])
+        work_val = html_lib.escape(m["work_completed"] or "")
+        owner_val = html_lib.escape(m["owner"] or "—")
+        dep_val = html_lib.escape(m["stakeholder_dependency"] or "—")
+        next_val = html_lib.escape(m["next_milestone_desc"] or "—")
+        comm_date = html_lib.escape(m["committed_date"] or "—")
+        final_date = html_lib.escape(m["final_completion_date"] or "—")
+        blocker = html_lib.escape(m["blocker"] or "")
+        recovery = html_lib.escape(m["recovery_action"] or "")
+        risk_html = ""
+        if blocker or recovery:
+            if blocker:
+                risk_html += f'<span style="color:#b91c1c;font-weight:600">Blocker:</span> {blocker}<br>'
+            if recovery:
+                risk_html += f'<span style="color:#4338ca;font-weight:600">Recovery:</span> {recovery}'
+        else:
+            risk_html = "—"
+        work_html = f'<br><span style="font-size:9px;color:#64748b">({work_val})</span>' if work_val else ""
+        rows_html += (
+            f'<tr><td style="{cell_style};font-weight:600">{p_name}</td>'
+            f'<td style="{cell_style};font-weight:600;color:#0f172a">{title_val}{work_html}</td>'
+            f'<td style="{cell_style}">{status_html}</td>'
+            f'<td style="{cell_style}">{owner_val}</td>'
+            f'<td style="{cell_style}">{dep_val}</td>'
+            f'<td style="{cell_style}">{next_val}</td>'
+            f'<td style="{date_style}">{comm_date}</td>'
+            f'<td style="{date_style}">{final_date}</td>'
+            f'<td style="{cell_style}">{risk_html}</td></tr>'
+        )
+
+    if not rows_html:
+        rows_html = '<tr><td colSpan="9" style="padding:24px;text-align:center;color:#94a3b8;">No milestones found.</td></tr>'
+
+    th_style = (
+        "padding:10px 8px;border:1px solid #cbd5e1;font-weight:700;"
+        "background:#f1f5f9;color:#1e293b;font-size:10.5px;text-align:left;"
+        "vertical-align:bottom;word-break:break-word"
+    )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{html_lib.escape(title_override)}</title>
+    <style>
+        @page {{ size: landscape; margin: 12mm; }}
+        body {{ font-family: Arial, sans-serif; margin: 0; padding: 15px; color: #1e293b; line-height: 1.4; }}
+        h1 {{ font-size: 18px; margin-bottom: 4px; color: #0f172a; }}
+        .subtitle {{ color: #64748b; font-size: 13px; margin-bottom: 18px; }}
+        table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
+        th, td {{ font-size: 10.5px; }}
+    </style>
+</head>
+<body>
+    <h1>{html_lib.escape(title_override)}</h1>
+    <p class="subtitle">Milestone status summary across open projects. Generated on {timezone.localdate().strftime('%d %b %Y')}.</p>
+    <table>
+        <colgroup>
+            <col style="width:12%">
+            <col style="width:18%">
+            <col style="width:8%">
+            <col style="width:9%">
+            <col style="width:10%">
+            <col style="width:11%">
+            <col style="width:9%">
+            <col style="width:9%">
+            <col style="width:14%">
+        </colgroup>
+        <thead>
+            <tr>
+                <th style="{th_style}">Project</th>
+                <th style="{th_style}">Open Item / Deliverable</th>
+                <th style="{th_style}">Status</th>
+                <th style="{th_style}">Owner</th>
+                <th style="{th_style}">Dependency</th>
+                <th style="{th_style}">Next Milestone</th>
+                <th style="{th_style}">Committed Date</th>
+                <th style="{th_style}">Final Closure Date</th>
+                <th style="{th_style}">Risk / Blocker &amp; Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {rows_html}
+        </tbody>
+    </table>
+</body>
+</html>"""
+
+
 def build_plan_rows(project_name, weeks, devs, working_days, brief,
                     leaders=None, week_from=1, change_note="", done_titles=None):
     """Build weekly plan rows using AI planner, preserving done tasks.

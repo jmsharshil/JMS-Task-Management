@@ -23,7 +23,7 @@ from .services import (build_plan_rows, weekly_report_text, weekly_report_contex
                        summary_stats_text, build_gantt_pdf_context,
                        daily_report_context, daily_report_text, render_report_pdf,
                        custom_range_report_context, custom_range_report_text,
-                       mom_pdf_sections, build_milestone_html)
+                       mom_pdf_sections, build_milestone_html, build_all_projects_milestone_html)
 from notifications import tasks as notify
 from django.utils.text import slugify
 
@@ -472,13 +472,14 @@ class ProjectViewSet(viewsets.ModelViewSet):
             html_template = "notifications/emails/custom_range_report.html"
             filename = f"{slugify(project.name)}_{df}_to_{dt}_report.pdf"
             title = f"Custom Report {df} - {dt} (Shared)"
-        elif report_type == "milestones":
-            filename = f"{slugify(project.name)}_milestones.pdf"
-            title = f"{project.name} — Milestone Report (Shared)"
+        elif report_type in ["milestones", "milestones_all"]:
+            is_all = report_type == "milestones_all" or (isinstance(request.data, dict) and request.data.get("all_projects"))
+            filename = f"{slugify(project.name if not is_all else 'all_open_projects')}_milestones.pdf"
+            title = f"{project.name if not is_all else 'All Open Projects'} — Milestone Report (Shared)"
             if isinstance(request.data, dict) and request.data.get("html"):
                 html = request.data.get("html")
             else:
-                html = build_milestone_html(project)
+                html = build_all_projects_milestone_html() if is_all else build_milestone_html(project)
         else:
             return Response({"detail": "Invalid type"}, status=400)
             
@@ -1156,26 +1157,41 @@ def shared_report_view(request, token):
 @permission_classes([IsAuthenticated])
 def milestone_report_pdf(request):
     """Standalone view for milestone PDF generation.
-    - GET ?project_id=123 : builds full landscape HTML table (sorted dicts + status badges).
+    - GET ?project_id=123 (or ?project_id=all) : builds landscape HTML table.
     - POST {html: "...", project_name?: "..."} : uses pre-rendered HTML from frontend.
-    Uses build_milestone_html() to eliminate duplication with share_link.
     """
     if request.method == "GET":
         project_id = request.query_params.get("project_id") or request.query_params.get("project")
-        if not project_id:
+        is_all = project_id == "all" or request.query_params.get("all") == "true"
+        if is_all:
+            date_from = request.query_params.get("date_from")
+            date_to = request.query_params.get("date_to")
+            date_field = request.query_params.get("date_field", "committed_date")
+            status_filter = request.query_params.get("status")
+            html = build_all_projects_milestone_html(
+                date_from=date_from, date_to=date_to,
+                date_field=date_field, status_filter=status_filter
+            )
+            project_name = "All Open Projects"
+        elif project_id:
+            try:
+                project = Project.objects.get(id=project_id)
+                html = build_milestone_html(project)
+                project_name = project.name
+            except Project.DoesNotExist:
+                return Response({"detail": "Project not found."}, status=404)
+        else:
             return Response({"detail": "project_id query parameter required for GET."}, status=400)
-        try:
-            project = Project.objects.get(id=project_id)
-            html = build_milestone_html(project)
-            project_name = project.name
-        except Project.DoesNotExist:
-            return Response({"detail": "Project not found."}, status=404)
     else:
         data = request.data if isinstance(request.data, dict) else getattr(request.data, "dict", lambda: {})()
         html = data.get("html")
         project_name = data.get("project_name") or "Milestones"
         if not html:
-            return Response({"detail": "html is required on POST."}, status=400)
+            if data.get("all_projects") or data.get("project_id") == "all":
+                html = build_all_projects_milestone_html()
+                project_name = "All Open Projects"
+            else:
+                return Response({"detail": "html is required on POST."}, status=400)
 
     try:
         pdf_bytes = render_report_pdf(html, title=f"{project_name} — Milestone Report")
