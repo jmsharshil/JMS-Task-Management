@@ -2,9 +2,10 @@ from django.utils import timezone
 from django.template.loader import render_to_string
 from django.http import HttpResponse
 from rest_framework import viewsets, status
-from rest_framework.decorators import action, api_view
+from rest_framework.decorators import action, api_view, parser_classes, permission_classes
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.permissions import IsAuthenticated
 
 from accounts.models import User
 from accounts.permissions import IsAdmin
@@ -1175,8 +1176,16 @@ def shared_report_view(request, token):
 
 
 @api_view(["GET", "POST"])
+@parser_classes([JSONParser, MultiPartParser, FormParser])
+@permission_classes([IsAdmin])
 def milestone_report_pdf(request):
-    """Accept an HTML string and return a PDF file download for milestone reports."""
+    """Standalone view for milestone PDF generation.
+    Accepts POST {html: str, project_name?: str} (frontend now owns the styled HTML table).
+    Uses explicit decorator ordering to avoid DRF router 405 issues in production.
+    """
+    if request.method == "GET":
+        return Response({"detail": "Use POST with {html, project_name} payload."})
+
     data = request.data if isinstance(request.data, dict) else {}
     html = data.get("html") or request.query_params.get("html", "")
     project_name = data.get("project_name") or request.query_params.get("project_name", "Milestones")
@@ -1185,9 +1194,9 @@ def milestone_report_pdf(request):
     try:
         pdf_bytes = render_report_pdf(html, title=f"{project_name} — Milestone Report")
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
-        safe_name = project_name.replace(" ", "_")
+        safe_name = project_name.replace(" ", "_").lower()
         response["Content-Disposition"] = f'attachment; filename="{safe_name}_milestones.pdf"'
         return response
     except Exception as e:
-        logger.error("Milestone PDF error: %s", e)
+        logger.error("Milestone PDF error: %s", e, exc_info=True)
         return Response({"detail": f"PDF generation failed: {e}"}, status=500)

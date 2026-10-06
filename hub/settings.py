@@ -86,7 +86,11 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CORS_ALLOW_CREDENTIALS = True
 
-CSRF_TRUSTED_ORIGINS = ["https://jms-task-management-f2e2hzcthnhteveh.centralindia-01.azurewebsites.net","http://localhost:8000","https://jms-task-management-f2e2hzcthnhteveh.centralindia-01.azurewebsites.net"]
+CSRF_TRUSTED_ORIGINS = [
+    "https://jms-task-management-f2e2hzcthnhteveh.centralindia-01.azurewebsites.net",
+    "http://localhost:8000",
+    "https://deliveryhub.jmstech.co",
+]
 
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Asia/Kolkata"
