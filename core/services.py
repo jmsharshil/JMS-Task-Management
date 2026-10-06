@@ -36,11 +36,140 @@ def _milestone_dicts(project):
     return rows
 
 
+def build_milestone_html(project):
+    """Build self-contained landscape HTML for milestone PDF report.
+    Uses sorted milestone dicts + status-specific colored badges matching
+    the _milestone_table.html and frontend buildMilestoneHtml.
+    """
+    import html as html_lib
+    ms = _milestone_dicts(project)
+    status_config = {
+        "COMPLETED": {"bg": "#dbeafe", "color": "#1e40af", "border": "#bfdbfe", "label": "Completed"},
+        "ON_TRACK": {"bg": "#dcfce7", "color": "#166534", "border": "#bbf7d0", "label": "On Track"},
+        "AT_RISK": {"bg": "#fee2e2", "color": "#991b1b", "border": "#fecaca", "label": "At Risk"},
+        "DELAYED": {"bg": "#fef9c3", "color": "#854d0e", "border": "#fef08a", "label": "Delayed"},
+    }
+    rows_html = ""
+    for i, m in enumerate(ms):
+        row_bg = "#f8fafc" if i % 2 else "#ffffff"
+        cell_style = (
+            f"padding:8px 10px;border:1px solid #e2e8f0;vertical-align:top;"
+            f"word-break:break-word;white-space:normal;font-size:10.5px;"
+            f"background:{row_bg};color:#334155"
+        )
+        date_style = (
+            f"padding:8px 10px;border:1px solid #e2e8f0;vertical-align:top;"
+            f"font-family:monospace;font-size:10.5px;white-space:nowrap;"
+            f"background:{row_bg};color:#334155"
+        )
+        st = status_config.get(
+            m["status"],
+            {"bg": "#f1f5f9", "color": "#334155", "border": "#cbd5e1", "label": m.get("status", "—")},
+        )
+        status_lbl = html_lib.escape(st["label"])
+        status_html = (
+            f'<span style="display:inline-block;padding:3px 6px;border-radius:3px;'
+            f'font-size:9.5px;font-weight:700;text-transform:uppercase;white-space:nowrap;'
+            f'background:{st["bg"]};color:{st["color"]};border:1px solid {st["border"]}">'
+            f"{status_lbl}</span>"
+        )
+        p_name = html_lib.escape(project.name)
+        title_val = html_lib.escape(m["title"])
+        work_val = html_lib.escape(m["work_completed"] or "")
+        owner_val = html_lib.escape(m["owner"] or "—")
+        dep_val = html_lib.escape(m["stakeholder_dependency"] or "—")
+        next_val = html_lib.escape(m["next_milestone_desc"] or "—")
+        comm_date = html_lib.escape(m["committed_date"] or "—")
+        final_date = html_lib.escape(m["final_completion_date"] or "—")
+        blocker = html_lib.escape(m["blocker"] or "")
+        recovery = html_lib.escape(m["recovery_action"] or "")
+        risk_html = ""
+        if blocker or recovery:
+            if blocker:
+                risk_html += f'<span style="color:#b91c1c;font-weight:600">Blocker:</span> {blocker}<br>'
+            if recovery:
+                risk_html += f'<span style="color:#4338ca;font-weight:600">Recovery:</span> {recovery}'
+        else:
+            risk_html = "—"
+        work_html = f'<br><span style="font-size:9px;color:#64748b">({work_val})</span>' if work_val else ""
+        rows_html += (
+            f'<tr><td style="{cell_style}">{p_name}</td>'
+            f'<td style="{cell_style};font-weight:600;color:#0f172a">{title_val}{work_html}</td>'
+            f'<td style="{cell_style}">{status_html}</td>'
+            f'<td style="{cell_style}">{owner_val}</td>'
+            f'<td style="{cell_style}">{dep_val}</td>'
+            f'<td style="{cell_style}">{next_val}</td>'
+            f'<td style="{date_style}">{comm_date}</td>'
+            f'<td style="{date_style}">{final_date}</td>'
+            f'<td style="{cell_style}">{risk_html}</td></tr>'
+        )
+    th_style = (
+        "padding:10px 8px;border:1px solid #cbd5e1;font-weight:700;"
+        "background:#f1f5f9;color:#1e293b;font-size:10.5px;text-align:left;"
+        "vertical-align:bottom;word-break:break-word"
+    )
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Milestone Report</title>
+    <style>
+        @page {{ size: landscape; margin: 12mm; }}
+        body {{ font-family: Arial, sans-serif; margin: 0; padding: 15px; color: #1e293b; line-height: 1.4; }}
+        h1 {{ font-size: 18px; margin-bottom: 4px; color: #0f172a; }}
+        .subtitle {{ color: #64748b; font-size: 13px; margin-bottom: 18px; }}
+        table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
+        th, td {{ font-size: 10.5px; }}
+    </style>
+</head>
+<body>
+    <h1>{html_lib.escape(project.name)} — Milestone Status Report</h1>
+    <p class="subtitle">All milestones sorted by status priority (Completed, On Track, At Risk, Delayed). Generated on {timezone.localdate().strftime('%d %b %Y')}.</p>
+    <table>
+        <colgroup>
+            <col style="width:9%">
+            <col style="width:19%">
+            <col style="width:8%">
+            <col style="width:9%">
+            <col style="width:10%">
+            <col style="width:12%">
+            <col style="width:9%">
+            <col style="width:9%">
+            <col style="width:15%">
+        </colgroup>
+        <thead>
+            <tr>
+                <th style="{th_style}">Project</th>
+                <th style="{th_style}">Open Item / Work Completed</th>
+                <th style="{th_style}">Status</th>
+                <th style="{th_style}">Owner</th>
+                <th style="{th_style}">Dependency</th>
+                <th style="{th_style}">Next Milestone</th>
+                <th style="{th_style}">Committed</th>
+                <th style="{th_style}">Final Date</th>
+                <th style="{th_style}">Risk / Blocker &amp; Recovery Action</th>
+            </tr>
+        </thead>
+        <tbody>{rows_html}</tbody>
+    </table>
+</body>
+</html>"""
+    return html_content
+
+
 def build_plan_rows(project_name, weeks, devs, working_days, brief,
                     leaders=None, week_from=1, change_note="", done_titles=None):
-    """
-    devs: list of user objects. leaders: optional list of leader users.
-    brief may contain "architecture" from approved ProjectArchitecture.
+    """Build weekly plan rows using AI planner, preserving done tasks.
+    
+    Args:
+        project_name: str
+        weeks: int
+        devs: list of user objects. 
+        leaders: optional list of leader users.
+        brief: may contain "architecture" from approved ProjectArchitecture.
+        working_days: list of dates
+        week_from, change_note, done_titles: for re-planning mid-project.
+    
     Returns list of dicts: {day_num, date, week, developer_id, module, title}
     Passes normalized leaders + full brief (with arch context) to planner.weekly_plan()
     and daily_tasks() for AI alignment and leader bias.
@@ -138,7 +267,7 @@ class SafeDict(dict):
         return '{' + key + '}'
 
 def weekly_report_text(project, week):
-    """Plain-text weekly report — uses format template if available."""
+    """Plain-text weekly report - uses format template if available."""
     tasks = list(project.tasks.filter(week=week).select_related("developer"))
     all_tasks = project.tasks.all()
     total, done_all = all_tasks.count(), all_tasks.filter(status="DONE").count()
@@ -180,35 +309,27 @@ def weekly_report_text(project, week):
         "",
         "— Generated by JMS Delivery Hub",
     ]
-    return "\n".join(lines)
 
-    by_dev = {}
-    for t in tasks:
-        n = t.developer.get_full_name() or t.developer.email
-        by_dev.setdefault(n, [0, 0])
-        by_dev[n][1] += 1
-        if t.status == "DONE":
-            by_dev[n][0] += 1
+    ms = _milestone_dicts(project)
+    if ms:
+        lines.extend([
+            "",
+            "PROJECT MILESTONES",
+            "--------------------------------------------------------------------------------",
+            "| Open Item | Status | Owner | Dependency | Next Milestone | Committed Date | Final Closure | Risk / Blocker & Action |",
+            "--------------------------------------------------------------------------------"
+        ])
+        status_map = {"COMPLETED": "Completed", "ON_TRACK": "On Track", "AT_RISK": "At Risk", "DELAYED": "Delayed"}
+        for m in ms:
+            owner = m["owner"] or "-"
+            status_disp = status_map.get(m["status"], m.get("status", "-"))
+            lines.append(
+                f"| {m['title']} | {status_disp} | {owner} | {m['stakeholder_dependency'] or '-'} | "
+                f"{m['next_milestone_desc'] or '-'} | {m['committed_date'] or '-'} | "
+                f"{m['final_completion_date'] or '-'} | {m['blocker'] or '-'} |"
+            )
+        lines.append("--------------------------------------------------------------------------------")
 
-    dates = sorted(t.date for t in tasks) or [project.start_date]
-    lines = [
-        "JMS TECH — WEEKLY PROJECT REPORT",
-        f"Project: {project.name}" + (f" ({project.ref})" if project.ref else ""),
-        f"Client: {project.client.name if project.client else '—'}",
-        f"Week: W{week} ({_fmt(dates[0])} – {_fmt(dates[-1])})",
-        f"Generated: {timezone.localdate().strftime('%a, %d %b %Y')}",
-        "",
-        f"OVERALL PROJECT: {done_all}/{total} tasks complete ({round(done_all/total*100) if total else 0}%)",
-        f"THIS WEEK: {len(done_wk)}/{len(tasks)} tasks complete ({round(len(done_wk)/len(tasks)*100) if tasks else 0}%)",
-        "",
-        "COMPLETED THIS WEEK",
-        *([f"  [x] D{t.day_num} — {t.module}: {t.title}" for t in done_wk] or ["  (none yet)"]),
-        "",
-        "PENDING / CARRIED FORWARD",
-        *([f"  [ ] D{t.day_num} — {t.module}: {t.title}" for t in pend_wk] or ["  (nothing pending — week fully complete)"]),
-        "",
-        "— Generated by JMS Delivery Hub",
-    ]
     return "\n".join(lines)
 
 
@@ -336,8 +457,8 @@ def daily_report_text(project, report_date):
         "— Generated by JMS Delivery Hub",
     ]
 
-    milestones = list(project.milestones.all())
-    if milestones:
+    ms = _milestone_dicts(project)
+    if ms:
         lines.extend([
             "",
             "PROJECT MILESTONES",
@@ -345,31 +466,17 @@ def daily_report_text(project, report_date):
             "| Open Item | Status | Owner | Dependency | Next Milestone | Committed Date | Final Closure | Risk / Blocker & Action |",
             "--------------------------------------------------------------------------------"
         ])
-        for m in milestones:
-            owner = m.owner or "-"
-            lines.append(f"| {m.title} | {m.get_status_display()} | {owner} | {m.stakeholder_dependency or '-'} | {m.next_milestone_desc or '-'} | {m.committed_date or '-'} | {m.final_completion_date or '-'} | {m.blocker or '-'} |")
+        status_map = {"COMPLETED": "Completed", "ON_TRACK": "On Track", "AT_RISK": "At Risk", "DELAYED": "Delayed"}
+        for m in ms:
+            owner = m["owner"] or "-"
+            status_disp = status_map.get(m["status"], m.get("status", "-"))
+            lines.append(
+                f"| {m['title']} | {status_disp} | {owner} | {m['stakeholder_dependency'] or '-'} | "
+                f"{m['next_milestone_desc'] or '-'} | {m['committed_date'] or '-'} | "
+                f"{m['final_completion_date'] or '-'} | {m['blocker'] or '-'} |"
+            )
         lines.append("--------------------------------------------------------------------------------")
 
-    return "\n".join(lines)
-
-    lines = [
-        "JMS TECH — DAILY PROJECT REPORT",
-        f"Project: {project.name}" + (f" ({project.ref})" if project.ref else ""),
-        f"Client: {project.client.name if project.client else '—'}",
-        f"Date: {report_date.strftime('%A, %d %b %Y')}",
-        f"Generated: {timezone.localdate().strftime('%a, %d %b %Y')}",
-        "",
-        f"OVERALL PROJECT: {done_all}/{total} tasks complete ({round(done_all/total*100) if total else 0}%)",
-        f"TODAY: {len(done_day)}/{len(tasks)} tasks complete ({round(len(done_day)/len(tasks)*100) if tasks else 0}%)",
-        "",
-        "COMPLETED TODAY",
-        *([f"  [x] D{t.day_num} — {t.module}: {t.title}" for t in done_day] or ["  (none yet)"]),
-        "",
-        "PENDING / NOT DONE",
-        *([f"  [ ] D{t.day_num} — {t.module}: {t.title}" for t in pend_day] or ["  (everything done — great work!)"]),
-        "",
-        "— Generated by JMS Delivery Hub",
-    ]
     return "\n".join(lines)
 
 
@@ -473,8 +580,8 @@ def custom_range_report_text(project, date_from, date_to):
         "— Generated by JMS Delivery Hub",
     ]
 
-    milestones = list(project.milestones.all())
-    if milestones:
+    ms = _milestone_dicts(project)
+    if ms:
         lines.extend([
             "",
             "PROJECT MILESTONES",
@@ -482,31 +589,17 @@ def custom_range_report_text(project, date_from, date_to):
             "| Open Item | Status | Owner | Dependency | Next Milestone | Committed Date | Final Closure | Risk / Blocker & Action |",
             "--------------------------------------------------------------------------------"
         ])
-        for m in milestones:
-            owner = m.owner or "-"
-            lines.append(f"| {m.title} | {m.get_status_display()} | {owner} | {m.stakeholder_dependency or '-'} | {m.next_milestone_desc or '-'} | {m.committed_date or '-'} | {m.final_completion_date or '-'} | {m.blocker or '-'} |")
+        status_map = {"COMPLETED": "Completed", "ON_TRACK": "On Track", "AT_RISK": "At Risk", "DELAYED": "Delayed"}
+        for m in ms:
+            owner = m["owner"] or "-"
+            status_disp = status_map.get(m["status"], m.get("status", "-"))
+            lines.append(
+                f"| {m['title']} | {status_disp} | {owner} | {m['stakeholder_dependency'] or '-'} | "
+                f"{m['next_milestone_desc'] or '-'} | {m['committed_date'] or '-'} | "
+                f"{m['final_completion_date'] or '-'} | {m['blocker'] or '-'} |"
+            )
         lines.append("--------------------------------------------------------------------------------")
 
-    return "\n".join(lines)
-
-    lines = [
-        "JMS TECH — CUSTOM RANGE PROJECT REPORT",
-        f"Project: {project.name}" + (f" ({project.ref})" if project.ref else ""),
-        f"Client: {project.client.name if project.client else '—'}",
-        f"Period: {date_from.strftime('%d %b %Y')} — {date_to.strftime('%d %b %Y')}",
-        f"Generated: {timezone.localdate().strftime('%a, %d %b %Y')}",
-        "",
-        f"OVERALL PROJECT: {done_all}/{total} tasks complete ({round(done_all/total*100) if total else 0}%)",
-        f"THIS PERIOD: {len(done_range)}/{len(tasks)} tasks complete ({round(len(done_range)/len(tasks)*100) if tasks else 0}%)",
-        "",
-        "COMPLETED IN PERIOD",
-        *([f"  [x] D{t.day_num} — {t.module}: {t.title}" for t in done_range] or ["  (none yet)"]),
-        "",
-        "PENDING / NOT DONE",
-        *([f"  [ ] D{t.day_num} — {t.module}: {t.title}" for t in pend_range] or ["  (all done!)"]),
-        "",
-        "— Generated by JMS Delivery Hub",
-    ]
     return "\n".join(lines)
 
 

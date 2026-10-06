@@ -23,7 +23,7 @@ from .services import (build_plan_rows, weekly_report_text, weekly_report_contex
                        summary_stats_text, build_gantt_pdf_context,
                        daily_report_context, daily_report_text, render_report_pdf,
                        custom_range_report_context, custom_range_report_text,
-                       mom_pdf_sections)
+                       mom_pdf_sections, build_milestone_html)
 from notifications import tasks as notify
 from django.utils.text import slugify
 
@@ -436,7 +436,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
         from django.core.files.base import ContentFile
         from django.utils.text import slugify
         from datetime import date as date_cls
-        import html as html_lib
 
         project = self.get_object()
         report_type = request.query_params.get("type")
@@ -479,30 +478,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             if isinstance(request.data, dict) and request.data.get("html"):
                 html = request.data.get("html")
             else:
-                milestones = project.milestones.all()
-                rows_html = ""
-                for i, m in enumerate(milestones):
-                    bg = "#ffffff" if i % 2 == 0 else "#f8fafc"
-                    cell = f"padding:8px 10px;border:1px solid #e2e8f0;vertical-align:top;word-break:break-word;white-space:normal;font-size:10.5px;background:{bg};color:#334155"
-                    date_cell = f"padding:8px 10px;border:1px solid #e2e8f0;vertical-align:top;font-family:monospace;font-size:10.5px;white-space:nowrap;background:{bg};color:#334155"
-                    status_lbl = html_lib.escape(str(m.status or "On Track"))
-                    p_name = html_lib.escape(project.name)
-                    t_val = html_lib.escape(m.title or "")
-                    w_val = html_lib.escape(m.work_completed or "")
-                    o_val = html_lib.escape(m.owner or "-")
-                    dep_val = html_lib.escape(m.stakeholder_dependency or "-")
-                    nxt_val = html_lib.escape(m.next_milestone_desc or "-")
-                    c_date = html_lib.escape(str(m.committed_date or "-"))
-                    f_date = html_lib.escape(str(m.final_completion_date or "-"))
-                    blk = html_lib.escape(m.blocker or "")
-                    act = html_lib.escape(m.recovery_action or "")
-                    blk_html = f'<b style="color:#dc2626">Blocker:</b> {blk}<br>' if blk else ''
-                    act_html = f'<b style="color:#4f46e5">Action:</b> {act}' if act else ''
-                    block_act = (blk_html + act_html) if (blk or act) else '-'
-                    work_html = f'<br><span style="font-size:9.5px;color:#64748b">{w_val}</span>' if w_val else ''
-                    rows_html += f'<tr><td style="{cell}">{p_name}</td><td style="{cell};font-weight:600;color:#0f172a">{t_val}{work_html}</td><td style="{cell}"><span style="display:inline-block;padding:3px 6px;border-radius:3px;font-size:9.5px;font-weight:700;text-transform:uppercase;white-space:nowrap;background:#dcfce7;color:#166534;border:1px solid #bbf7d0">{status_lbl}</span></td><td style="{cell}">{o_val}</td><td style="{cell}">{dep_val}</td><td style="{cell}">{nxt_val}</td><td style="{date_cell}">{c_date}</td><td style="{date_cell}">{f_date}</td><td style="{cell}">{block_act}</td></tr>'
-                th = "padding:8px 10px;border:1px solid #cbd5e1;font-weight:700;background:#f1f5f9;color:#1e293b;font-size:10.5px;text-align:left;vertical-align:bottom;word-break:break-word"
-                html = f'<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page {{ size: landscape; margin: 10mm; }} body {{ font-family: Arial, Helvetica, sans-serif; font-size: 11px; margin: 10px; color: #1e293b; }} h2 {{ font-size: 16px; margin-bottom: 4px; color: #0f172a; }} p {{ color: #64748b; font-size: 11px; margin: 0 0 14px; }} table {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}</style></head><body><h2>{html_lib.escape(project.name)} — Milestone Status Report</h2><p>Milestone Status Summary</p><table><colgroup><col style="width:10%"><col style="width:18%"><col style="width:8%"><col style="width:9%"><col style="width:10%"><col style="width:11%"><col style="width:10%"><col style="width:10%"><col style="width:14%"></colgroup><thead><tr><th style="{th}">Project</th><th style="{th}">Open Item</th><th style="{th}">Status</th><th style="{th}">Owner</th><th style="{th}">Dependency</th><th style="{th}">Next Milestone</th><th style="{th}">Committed Date</th><th style="{th}">Final Closure Date</th><th style="{th}">Risk / Blocker &amp; Action</th></tr></thead><tbody>{rows_html}</tbody></table></body></html>'
+                html = build_milestone_html(project)
         else:
             return Response({"detail": "Invalid type"}, status=400)
             
@@ -515,7 +491,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
             html = render_to_string(html_template, context)
             
         try:
-            pdf_bytes = render_report_pdf(html, title=f"{project.name} — Report")
+            pdf_bytes = render_report_pdf(html, title=title)
         except RuntimeError as e:
             return Response({"detail": str(e)}, status=502)
             
@@ -1177,25 +1153,35 @@ def shared_report_view(request, token):
 
 @api_view(["GET", "POST"])
 @parser_classes([JSONParser, MultiPartParser, FormParser])
-@permission_classes([IsAdmin])
+@permission_classes([IsAuthenticated])
 def milestone_report_pdf(request):
     """Standalone view for milestone PDF generation.
-    Accepts POST {html: str, project_name?: str} (frontend now owns the styled HTML table).
-    Uses explicit decorator ordering to avoid DRF router 405 issues in production.
+    - GET ?project_id=123 : builds full landscape HTML table (sorted dicts + status badges).
+    - POST {html: "...", project_name?: "..."} : uses pre-rendered HTML from frontend.
+    Uses build_milestone_html() to eliminate duplication with share_link.
     """
     if request.method == "GET":
-        return Response({"detail": "Use POST with {html, project_name} payload."})
+        project_id = request.query_params.get("project_id") or request.query_params.get("project")
+        if not project_id:
+            return Response({"detail": "project_id query parameter required for GET."}, status=400)
+        try:
+            project = Project.objects.get(id=project_id)
+            html = build_milestone_html(project)
+            project_name = project.name
+        except Project.DoesNotExist:
+            return Response({"detail": "Project not found."}, status=404)
+    else:
+        data = request.data if isinstance(request.data, dict) else getattr(request.data, "dict", lambda: {})()
+        html = data.get("html")
+        project_name = data.get("project_name") or "Milestones"
+        if not html:
+            return Response({"detail": "html is required on POST."}, status=400)
 
-    data = request.data if isinstance(request.data, dict) else {}
-    html = data.get("html") or request.query_params.get("html", "")
-    project_name = data.get("project_name") or request.query_params.get("project_name", "Milestones")
-    if not html:
-        return Response({"detail": "html is required."}, status=400)
     try:
         pdf_bytes = render_report_pdf(html, title=f"{project_name} — Milestone Report")
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
-        safe_name = project_name.replace(" ", "_").lower()
-        response["Content-Disposition"] = f'attachment; filename="{safe_name}_milestones.pdf"'
+        safe_name = slugify(project_name) or "milestones"
+        response["Content-Disposition"] = f'attachment; filename="{safe_name}_milestone_report.pdf"'
         return response
     except Exception as e:
         logger.error("Milestone PDF error: %s", e, exc_info=True)

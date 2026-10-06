@@ -15,5 +15,6 @@ urlpatterns = [
     path("org-settings/", views.org_settings),
     path("shared/report/<str:token>/", views.shared_report_view),
     path("milestone-report-pdf/", views.milestone_report_pdf),
+    path("milestone-report-pdf", views.milestone_report_pdf),
 ] + router.urls
 
