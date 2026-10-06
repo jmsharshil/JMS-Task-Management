@@ -1174,11 +1174,12 @@ def shared_report_view(request, token):
     return HttpResponse(html)
 
 
-@api_view(["POST"])
+@api_view(["GET", "POST"])
 def milestone_report_pdf(request):
     """Accept an HTML string and return a PDF file download for milestone reports."""
-    html = request.data.get("html", "")
-    project_name = request.data.get("project_name", "Milestones")
+    data = request.data if isinstance(request.data, dict) else {}
+    html = data.get("html") or request.query_params.get("html", "")
+    project_name = data.get("project_name") or request.query_params.get("project_name", "Milestones")
     if not html:
         return Response({"detail": "html is required."}, status=400)
     try:
