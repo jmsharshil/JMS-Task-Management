@@ -1,0 +1,31 @@
+{% extends "notifications/emails/base.html" %}
+
+{% block title %}Demo Scheduled: {{ project_name }}{% endblock %}
+{% block header_title %}Demo Scheduled 🗓️{% endblock %}
+{% block header_subtitle %}<p class="subtitle">{{ project_name }}</p>{% endblock %}
+
+{% block content %}
+<p class="greeting">Hi {{ first_name }},</p>
+
+<p>A new demo has been scheduled. Please ensure you are prepared for the demonstration with the client.</p>
+
+<div class="info-card">
+  <p>CLIENT</p>
+  <p class="value">{{ client_name }}</p>
+</div>
+
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="stats-grid">
+  <tr>
+    <td width="100%">
+      <div class="stat-box">
+        <div class="stat-number">{{ demo_dt }}</div>
+        <div class="stat-label">Date & Time</div>
+      </div>
+    </td>
+  </tr>
+</table>
+
+<hr class="divider">
+
+<p>Log into JMS Delivery Hub for any further details or project context.</p>
+{% endblock %}

@@ -55,6 +55,15 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = Project.objects.all().order_by("-created_at")
+        
+        category = self.request.query_params.get("category")
+        if category:
+            qs = qs.filter(category=category)
+            if category == "NAAVYA":
+                project_type = self.request.query_params.get("project_type")
+                if project_type:
+                    qs = qs.filter(project_type=project_type)
+                    
         if not self.request.user.is_admin:
             qs = qs.filter(team=self.request.user)
         return qs
@@ -243,18 +252,23 @@ class ProjectViewSet(viewsets.ModelViewSet):
         elif not team_data:
             team_data = []
             
-        # Validate architecture approval
-        if not arch_id:
-            return Response({"detail": "Approved architecture_id is required."}, status=400)
-        try:
-            arch = ProjectArchitecture.objects.get(id=arch_id, status="APPROVED")
-        except ProjectArchitecture.DoesNotExist:
-            return Response({"detail": "Valid approved architecture is required before creating project plan."}, status=400)
+        category = data.get("category", "JMS")
+        arch = None
+        if category == "JMS":
+            if not arch_id:
+                return Response({"detail": "Approved architecture_id is required."}, status=400)
+            try:
+                arch = ProjectArchitecture.objects.get(id=arch_id, status="APPROVED")
+            except ProjectArchitecture.DoesNotExist:
+                return Response({"detail": "Valid approved architecture is required before creating project plan."}, status=400)
 
         project = Project.objects.create(
             name=data["name"], client_id=data.get("client") or None,
             ref=data.get("ref", ""), start_date=data["start_date"],
+            demo_time=data.get("demo_time") or None,
             weeks=int(data.get("weeks", 8)),
+            category=data.get("category", "JMS"),
+            project_type=data.get("project_type", "SOFTWARE"),
             brief_summary=brief_data.get("summary", ""),
             brief_modules=brief_data.get("modules", []),
             sow_pdf=request.FILES.get("sow_pdf")
@@ -271,21 +285,59 @@ class ProjectViewSet(viewsets.ModelViewSet):
             project.team_leaders.set(leader_data)
         
         # Link architecture
-        arch.project = project
-        arch.save(update_fields=['project'])
+        if arch:
+            arch.project = project
+            arch.save(update_fields=['project'])
         
         current_week = int(data.get("current_week", 1))
-        Task.objects.bulk_create([
-            Task(project=project, day_num=r["day_num"], date=r["date"], week=r["week"],
-                 developer_id=r["developer_id"], module=r["module"], title=r["title"],
-                 status="DONE" if r["week"] < current_week else "TODO",
-                 done_at=timezone.now() if r["week"] < current_week else None)
-            for r in rows_data
-        ])
+        
+        if category == "DEMO":
+            # For DEMO, we just send an email and don't create tasks
+            Update.objects.create(project=project, author=request.user, text=f"Demo scheduled for {project.start_date}.")
+            from notifications.tasks import send_demo_scheduled
+            send_demo_scheduled(project.id)
+            return Response(ProjectSerializer(project).data, status=status.HTTP_201_CREATED)
+            
+        elif category == "NAAVYA":
+            # Use fixed task templates for Naavya projects
+            from .fixed_tasks import get_fixed_tasks
+            fixed = get_fixed_tasks(project.project_type)
+            working_days = project.working_days()
+            if fixed and working_days:
+                first_dev = project.team.first()
+                if first_dev:
+                    tasks_to_create = []
+                    for t in fixed:
+                        idx = t["day_num"] - 1
+                        if idx < len(working_days):
+                            task_date = working_days[idx]
+                            week_num = idx // 5 + 1
+                            tasks_to_create.append(Task(
+                                project=project,
+                                day_num=t["day_num"],
+                                date=task_date,
+                                week=week_num,
+                                developer=first_dev,
+                                module=t["module"],
+                                title=t["title"],
+                                status="DONE" if week_num < current_week else "TODO",
+                                done_at=timezone.now() if week_num < current_week else None,
+                            ))
+                    Task.objects.bulk_create(tasks_to_create)
+        else:
+            # JMS projects: use AI-generated rows
+            Task.objects.bulk_create([
+                Task(project=project, day_num=r["day_num"], date=r["date"], week=r["week"],
+                     developer_id=r["developer_id"], module=r["module"], title=r["title"],
+                     status="DONE" if r["week"] < current_week else "TODO",
+                     done_at=timezone.now() if r["week"] < current_week else None)
+                for r in rows_data
+            ])
+        
         Update.objects.create(project=project, author=request.user,
-                              text=f"Architecture approved and project kicked off — plan published. "
+                              text=f"Project kicked off — plan published. "
                                    f"{project.tasks.count()} tasks across {project.weeks} weeks. "
-                                   f"Architecture v{arch.version} approved.")
+                                   f"Architecture v{arch.version if arch else 'N/A'} approved.")
         notify.send_plan_published(project.id)
         return Response(ProjectSerializer(project).data, status=status.HTTP_201_CREATED)
 
@@ -888,6 +940,45 @@ class ProjectViewSet(viewsets.ModelViewSet):
             doc = ProjectDocument.objects.create(
                 project=project, title=title, file=file, uploaded_by=request.user
             )
+            
+            # Auto-process the uploaded document
+            try:
+                file_ext = (file.name or "").lower().split(".")[-1]
+                file.seek(0)
+                file_bytes = file.read()
+                doc_text = ""
+                
+                if file_ext in ("docx", "doc"):
+                    try:
+                        import io
+                        from docx import Document
+                        document = Document(io.BytesIO(file_bytes))
+                        doc_text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).warning(f"DOCX extraction failed for auto-process: {e}")
+                elif file_ext == "pdf":
+                    try:
+                        import io
+                        from pypdf import PdfReader
+                        reader = PdfReader(io.BytesIO(file_bytes))
+                        doc_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+                    except Exception as e:
+                        import logging
+                        logging.getLogger(__name__).warning(f"PDF extraction failed for auto-process: {e}")
+                elif file_ext in ("txt", "md", "csv"):
+                    try:
+                        doc_text = file_bytes.decode("utf-8")
+                    except Exception:
+                        pass
+                
+                if doc_text.strip():
+                    from .services import auto_process_document
+                    auto_process_document(project, doc_text, request.user)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Error auto-processing document: {e}")
+
             return Response(
                 ProjectDocumentSerializer(doc, context={"request": request}).data,
                 status=201,
@@ -917,6 +1008,15 @@ class TaskViewSet(viewsets.ModelViewSet):
         u = self.request.user
         if not u.is_admin:
             qs = qs.filter(developer=u)
+            
+        category = self.request.query_params.get("category")
+        if category:
+            qs = qs.filter(project__category=category)
+            if category == "NAAVYA":
+                project_type = self.request.query_params.get("project_type")
+                if project_type:
+                    qs = qs.filter(project__project_type=project_type)
+                    
         pid = self.request.query_params.get("project")
         if pid:
             qs = qs.filter(project_id=pid)
@@ -963,7 +1063,17 @@ def dashboard(request):
     """Founder dashboard: totals + per-project + per-developer rollups."""
     today = timezone.localdate()
     u = request.user
-    projects = Project.objects.all() if u.is_admin else Project.objects.filter(team=u)
+    
+    category = request.query_params.get("category", "JMS")
+    project_type = request.query_params.get("project_type", "VOICE")
+    
+    projects = Project.objects.filter(category=category)
+    if category == "NAAVYA":
+        projects = projects.filter(project_type=project_type)
+        
+    if not u.is_admin:
+        projects = projects.filter(team=u)
+        
     proj_rows, dev_map = [], {}
     totals = {"done": 0, "pending": 0, "overdue": 0}
     for p in projects.prefetch_related("tasks__developer"):

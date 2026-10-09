@@ -12,10 +12,37 @@ class Client(models.Model):
 
 
 class Project(models.Model):
+    # Category: which hub section does this project belong to
+    class Category(models.TextChoices):
+        JMS = "JMS", "JMS Projects"
+        NAAVYA = "NAAVYA", "Naavya AI"
+        DEMO = "DEMO", "Demo"
+
+    # Project type: specific type within the category
+    class ProjectType(models.TextChoices):
+        # JMS types
+        SOFTWARE = "SOFTWARE", "Custom Software"
+        SERVICES = "SERVICES", "Services"
+        # Naavya types
+        VOICE = "VOICE", "Voice Only"
+        VOICE_WHATSAPP = "VOICE_WHATSAPP", "Voice + WhatsApp"
+        WHATSAPP = "WHATSAPP", "WhatsApp Only"
+        # Demo
+        DEMO = "DEMO", "Demo"
+
     name = models.CharField(max_length=160)
+    category = models.CharField(
+        max_length=10, choices=Category.choices, default=Category.JMS,
+        help_text="Hub section: JMS Projects, Naavya AI, or Demo"
+    )
+    project_type = models.CharField(
+        max_length=20, choices=ProjectType.choices, default=ProjectType.SOFTWARE,
+        help_text="Specific project type within the category"
+    )
     client = models.ForeignKey(Client, null=True, blank=True, on_delete=models.SET_NULL, related_name="projects")
     ref = models.CharField(max_length=60, blank=True)  # e.g. JMS-AGR-2026-032
     start_date = models.DateField()
+    demo_time = models.DateTimeField(null=True, blank=True)
     weeks = models.PositiveSmallIntegerField(default=8)
     team = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name="projects")
     team_leaders = models.ManyToManyField(
@@ -28,8 +55,10 @@ class Project(models.Model):
 
     def working_days(self):
         """List of ISO dates, Mon-Fri only, weeks*5 long."""
-        from datetime import timedelta
+        from datetime import timedelta, date
         days, d = [], self.start_date
+        if isinstance(d, str):
+            d = date.fromisoformat(d)
         while len(days) < self.weeks * 5:
             if d.weekday() < 5:
                 days.append(d)

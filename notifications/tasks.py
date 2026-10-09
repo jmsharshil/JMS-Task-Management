@@ -58,6 +58,25 @@ def send_plan_published(project_id):
 
 
 @background_task
+def send_demo_scheduled(project_id):
+    from core.models import Project
+    p = Project.objects.get(id=project_id)
+    for u in p.team.all():
+        demo_dt = f"{p.start_date.strftime('%d %b, %Y')} at {p.demo_time.strftime('%I:%M %p')}" if p.demo_time else f"{p.start_date.strftime('%d %b, %Y')}"
+        body = (f"Hi {u.first_name},\n\nA Demo has been scheduled: {p.name}.\n"
+                f"Client: {p.client.name if p.client else 'N/A'}\n"
+                f"Date & Time: {demo_dt}\n\n"
+                "Please be prepared for the demonstration.\n\n— JMS Delivery Hub")
+        html_message = render_to_string("notifications/emails/demo_scheduled.html", {
+            "first_name": u.first_name,
+            "project_name": p.name,
+            "client_name": p.client.name if p.client else 'N/A',
+            "demo_dt": demo_dt
+        })
+        email(u.email, f"Demo Scheduled: {p.name}", body, html_message=html_message)
+
+
+@background_task
 def send_plan_adjusted(project_id, week_from):
     from core.models import Project
     p = Project.objects.get(id=project_id)
