@@ -58,12 +58,21 @@ class ProjectViewSet(viewsets.ModelViewSet):
         
         category = self.request.query_params.get("category")
         if category:
-            qs = qs.filter(category=category)
-            if category == "NAAVYA":
-                project_type = self.request.query_params.get("project_type")
-                if project_type:
-                    qs = qs.filter(project_type=project_type)
+            if category == "JMS":
+                from django.db.models import Q
+                qs = qs.filter(Q(category="JMS") | Q(category__isnull=True) | Q(category=""))
+            else:
+                qs = qs.filter(category=category)
+                if category == "NAAVYA":
+                    project_type = self.request.query_params.get("project_type")
+                    if project_type:
+                        qs = qs.filter(project_type=project_type)
                     
+        search = self.request.query_params.get("search")
+        if search:
+            from django.db.models import Q
+            qs = qs.filter(Q(name__icontains=search) | Q(client__name__icontains=search) | Q(ref__icontains=search))
+
         if not self.request.user.is_admin:
             qs = qs.filter(team=self.request.user)
         return qs
